@@ -80,7 +80,7 @@ def load_urls_config(filename):
     return urls
 
 # Cargar recursos externos
-CSS_STYLES = load_external_file('styles.css.txt')
+CSS_STYLES = load_external_file('styles_css.txt')
 INITIAL_DESCRIPTION = load_external_file('description.txt')
 
 # Cargar configuración de URLs
