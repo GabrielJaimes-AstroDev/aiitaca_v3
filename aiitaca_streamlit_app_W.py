@@ -93,6 +93,27 @@ st.markdown("""
         font-size: 0.8em;
         color: #aaaaaa !important;
     }
+    .success-box {
+        background-color: #4CAF50 !important;
+        color: white !important;
+        padding: 15px;
+        border-radius: 5px;
+        margin-bottom: 15px;
+    }
+    .warning-box {
+        background-color: #FF9800 !important;
+        color: white !important;
+        padding: 15px;
+        border-radius: 5px;
+        margin-bottom: 15px;
+    }
+    .error-box {
+        background-color: #F44336 !important;
+        color: white !important;
+        padding: 15px;
+        border-radius: 5px;
+        margin-bottom: 15px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -174,106 +195,101 @@ def list_downloaded_files(directory):
     return file_list
 
 # === FUNCIONES DE PROCESAMIENTO MEJORADAS ===
-def read_spectrum(file_path):
-    """Lee un archivo de espectro en varios formatos con mejor manejo de errores"""
+def robust_read_file(file_path):
+    """Lee archivos de espectro o filtro con manejo robusto de formatos"""
     try:
+        # Intentar leer como FITS primero
         if file_path.endswith('.fits'):
             with fits.open(file_path) as hdul:
-                data = hdul[1].data
-                return data['freq'], data['intensity']
-        else:
-            # Manejar diferentes formatos de texto
-            with open(file_path, 'rb') as f:
-                content = f.read()
-            
-            # Intentar decodificar con diferentes codificaciones
-            for encoding in ['utf-8', 'latin-1', 'ascii']:
-                try:
-                    decoded_content = content.decode(encoding)
-                    lines = decoded_content.splitlines()
-                    break
-                except UnicodeDecodeError:
-                    continue
-            
-            # Filtrar líneas de comentario
-            data_lines = []
-            for line in lines:
-                stripped = line.strip()
-                if stripped and not stripped.startswith(('!', '//', '#')):
-                    data_lines.append(stripped)
-            
-            if not data_lines:
-                raise ValueError("No valid data lines found in file")
-            
-            # Leer datos numéricos
-            data = np.genfromtxt(data_lines)
-            if data.ndim != 2 or data.shape[1] < 2:
-                raise ValueError("Invalid data format - expected at least 2 columns")
-            
-            return data[:, 0], data[:, 1]
-            
-    except Exception as e:
-        st.error(f"Error reading spectrum file: {str(e)}")
-        return None, None
-
-def apply_filter(spectrum_freq, spectrum_intensity, filter_path):
-    """Aplica un filtro a un espectro con mejor manejo de errores"""
-    try:
-        # Leer archivo de filtro con manejo de codificación
-        with open(filter_path, 'rb') as f:
+                return hdul[1].data['freq'], hdul[1].data['intensity']
+        
+        # Leer como archivo de texto
+        with open(file_path, 'rb') as f:
             content = f.read()
         
-        # Intentar diferentes codificaciones
+        # Probar diferentes codificaciones
         for encoding in ['utf-8', 'latin-1', 'ascii']:
             try:
-                decoded_content = content.decode(encoding)
-                filter_data = np.genfromtxt(decoded_content.splitlines())
-                break
+                decoded = content.decode(encoding)
+                lines = decoded.splitlines()
+                
+                # Filtrar líneas de comentario
+                data_lines = []
+                for line in lines:
+                    stripped = line.strip()
+                    if stripped and not stripped.startswith(('!', '//', '#')):
+                        # Reemplazar comas por puntos para decimales
+                        cleaned = stripped.replace(',', '.')
+                        data_lines.append(cleaned)
+                
+                if not data_lines:
+                    continue
+                
+                # Leer datos numéricos
+                data = np.genfromtxt(data_lines)
+                if data.ndim == 2 and data.shape[1] >= 2:
+                    return data[:, 0], data[:, 1]
+                
             except (UnicodeDecodeError, ValueError):
                 continue
         
-        if filter_data is None or filter_data.ndim != 2 or filter_data.shape[1] < 2:
-            raise ValueError("Invalid filter file format")
+        raise ValueError("No se pudo leer el archivo con ninguna codificación estándar")
+    
+    except Exception as e:
+        st.error(f"Error leyendo archivo {os.path.basename(file_path)}: {str(e)}")
+        return None, None
+
+def apply_spectral_filter(spectrum_freq, spectrum_intensity, filter_path):
+    """Aplica un filtro espectral con manejo robusto"""
+    try:
+        # Leer datos del filtro
+        filter_freq, filter_intensity = robust_read_file(filter_path)
+        if filter_freq is None:
+            return None
         
-        freq_filter = filter_data[:, 0] / 1e9  # Convertir a GHz
-        intensity_filter = filter_data[:, 1]
+        # Convertir a GHz si es necesario (detectar si está en Hz)
+        if np.mean(filter_freq) > 1e6:  # Asumir que está en Hz si los valores son muy grandes
+            filter_freq = filter_freq / 1e9
         
-        # Normalizar filtro
-        max_intensity = np.max(intensity_filter)
+        # Normalizar el filtro
+        max_intensity = np.max(filter_intensity)
         if max_intensity > 0:
-            intensity_filter = intensity_filter / max_intensity
+            filter_intensity = filter_intensity / max_intensity
         
-        # Interpolar espectro a las frecuencias del filtro
-        valid_mask = (~np.isnan(spectrum_intensity)) & (~np.isinf(spectrum_intensity))
-        if np.sum(valid_mask) < 2:
-            raise ValueError("Not enough valid data points in spectrum")
+        # Crear máscara para regiones significativas del filtro
+        mask = filter_intensity > 0.01  # Umbral del 1%
+        
+        # Interpolar el espectro a las frecuencias del filtro
+        valid_points = (~np.isnan(spectrum_intensity)) & (~np.isinf(spectrum_intensity))
+        if np.sum(valid_points) < 2:
+            raise ValueError("El espectro no tiene suficientes puntos válidos para interpolación")
         
         interp_func = interp1d(
-            spectrum_freq[valid_mask], 
-            spectrum_intensity[valid_mask],
-            kind='linear', 
-            bounds_error=False, 
-            fill_value=0
+            spectrum_freq[valid_points],
+            spectrum_intensity[valid_points],
+            kind='linear',
+            bounds_error=False,
+            fill_value=0.0
         )
         
-        # Aplicar filtro
-        filtered = interp_func(freq_filter) * intensity_filter
-        filtered = np.clip(filtered, 0, None)
+        # Aplicar el filtro
+        filtered_data = interp_func(filter_freq) * filter_intensity
+        filtered_data = np.clip(filtered_data, 0, None)  # Eliminar valores negativos
         
-        # Crear versión completa con ceros
-        full_filtered = np.zeros_like(freq_filter)
-        mask = intensity_filter > 0.01  # Umbral para considerar "activado" el filtro
-        full_filtered[mask] = filtered[mask]
+        # Crear versión con ceros en regiones no filtradas
+        full_filtered = np.zeros_like(filter_freq)
+        full_filtered[mask] = filtered_data[mask]
         
         return {
-            'freq': freq_filter,
+            'freq': filter_freq,
             'intensity': full_filtered,
-            'filter_profile': intensity_filter,
+            'filter_profile': filter_intensity,
             'mask': mask,
             'filter_name': os.path.splitext(os.path.basename(filter_path))[0]
         }
+    
     except Exception as e:
-        st.error(f"Error applying filter {os.path.basename(filter_path)}: {str(e)}")
+        st.error(f"Error aplicando filtro {os.path.basename(filter_path)}: {str(e)}")
         return None
 
 # === INTERFAZ PRINCIPAL ===
@@ -339,9 +355,9 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
     
     try:
         # Leer espectro de entrada
-        input_freq, input_spec = read_spectrum(tmp_path)
+        input_freq, input_spec = robust_read_file(tmp_path)
         if input_freq is None:
-            raise ValueError("Invalid spectrum file format or content")
+            raise ValueError("No se pudo leer el archivo de espectro")
         
         # Obtener todos los archivos de filtros
         filter_files = []
@@ -351,31 +367,37 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
                     filter_files.append(os.path.join(root, file))
         
         if not filter_files:
-            raise ValueError("No filter files found in the filters directory")
+            raise ValueError("No se encontraron archivos de filtro")
         
         # Procesar con todos los filtros
         filtered_results = []
         failed_filters = []
         
-        with st.spinner("Applying filters..."):
+        with st.spinner("Aplicando filtros..."):
             progress_bar = st.progress(0)
             status_text = st.empty()
             
             for i, filter_file in enumerate(filter_files):
-                status_text.text(f"Processing filter {i+1}/{len(filter_files)}: {os.path.basename(filter_file)}")
+                filter_name = os.path.splitext(os.path.basename(filter_file))[0]
+                status_text.text(f"Procesando filtro {i+1}/{len(filter_files)}: {filter_name}")
                 progress_bar.progress((i + 1) / len(filter_files))
                 
-                result = apply_filter(input_freq, input_spec, filter_file)
+                result = apply_spectral_filter(input_freq, input_spec, filter_file)
                 if result is not None:
                     # Guardar resultado filtrado temporalmente
                     output_filename = f"filtered_{result['filter_name']}.txt"
                     output_path = os.path.join(tempfile.gettempdir(), output_filename)
+                    
+                    header = f"!xValues(GHz)\tyValues(K)\n!Filtro aplicado: {result['filter_name']}"
                     np.savetxt(
                         output_path,
                         np.column_stack((result['freq'], result['intensity'])),
-                        header=f"Filtered spectrum using {result['filter_name']}",
-                        delimiter='\t'
+                        header=header,
+                        delimiter='\t',
+                        fmt=['%.10f', '%.6e'],
+                        comments=''
                     )
+                    
                     filtered_results.append({
                         'name': result['filter_name'],
                         'original_freq': input_freq,
@@ -390,14 +412,13 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
             status_text.empty()
         
         if not filtered_results:
-            raise ValueError(f"No filters were successfully applied. {len(failed_filters)} filters failed.")
+            raise ValueError(f"Ningún filtro se aplicó correctamente. {len(failed_filters)} fallaron.")
         
-        # Mostrar resumen de procesamiento
-        st.success(f"Successfully applied {len(filtered_results)} filters")
+        # Mostrar resumen
+        st.markdown(f'<div class="success-box">✓ {len(filtered_results)} filtros aplicados correctamente</div>', unsafe_allow_html=True)
+        
         if failed_filters:
-            st.warning(f"Failed to apply {len(failed_filters)} filters:")
-            for failed in failed_filters:
-                st.markdown(f'<div class="file-list">{failed}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="warning-box">⚠ {len(failed_filters)} filtros fallaron: {", ".join(failed_filters)}</div>', unsafe_allow_html=True)
         
         # Mostrar resultados en pestañas
         tab1, tab2 = st.tabs(["Interactive View", "Filter Details"])
@@ -500,18 +521,22 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
                         )
     
     except Exception as e:
-        st.error(f"Processing error: {str(e)}")
+        st.markdown(f'<div class="error-box">✗ Error en el procesamiento: {str(e)}</div>', unsafe_allow_html=True)
     finally:
         os.unlink(tmp_path)
 
 elif not st.session_state.MODEL_DIR or not st.session_state.FILTER_DIR:
-    st.error("""
-    Required resources could not be downloaded. 
+    st.markdown("""
+    <div class="error-box">
+    ✗ Required resources could not be downloaded.<br>
     Possible solutions:
-    1. Click the 'Retry Download Resources' button in the sidebar
-    2. Check your internet connection
-    3. Try again later
-    """)
+    <ol>
+        <li>Click the 'Retry Download Resources' button in the sidebar</li>
+        <li>Check your internet connection</li>
+        <li>Try again later</li>
+    </ol>
+    </div>
+    """, unsafe_allow_html=True)
 else:
     st.info("Please upload a spectrum file to begin analysis")
 
