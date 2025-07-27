@@ -530,88 +530,89 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
                 with col3:
                     st.metric("Total Area", f"{np.trapz(input_spec, input_freq):.2e} K·GHz")
         
-        with tab2:
-            # Sort filters by transmission efficiency
-            filtered_results_sorted = sorted(filtered_results, key=lambda x: x['transmission'], reverse=True)
+        # En la sección donde se crean los botones de descarga (dentro del bucle for que procesa los filtros):
+with tab2:
+    # Sort filters by transmission efficiency
+    filtered_results_sorted = sorted(filtered_results, key=lambda x: x['transmission'], reverse=True)
+    
+    # Show filter comparison table
+    st.markdown("### Filter Performance Comparison")
+    comparison_data = []
+    for i, result in enumerate(filtered_results_sorted):  # Añadimos enumerate para obtener índice único
+        comparison_data.append({
+            "Filter Name": result['name'],
+            "Category": result['parent_dir'],
+            "Transmission": f"{result['transmission']:.2%}",
+            "Max Intensity": f"{max(result['filtered_data']['intensity']):.2e} K"
+        })
+    
+    st.table(comparison_data)
+    
+    # Show details for each filter
+    st.markdown("### Filter Details")
+    for i, result in enumerate(filtered_results_sorted):  # Añadimos enumerate aquí también
+        with st.expander(f"🔍 {result['name']} (Transmission: {result['transmission']:.2%})", expanded=False):
+            col1, col2 = st.columns(2)
             
-            # Show filter comparison table
-            st.markdown("### Filter Performance Comparison")
-            comparison_data = []
-            for result in filtered_results_sorted:
-                comparison_data.append({
-                    "Filter Name": result['name'],
-                    "Category": result['parent_dir'],
-                    "Transmission": f"{result['transmission']:.2%}",
-                    "Max Intensity": f"{max(result['filtered_data']['intensity']):.2e} K"
-                })
+            with col1:
+                # Filter profile plot
+                fig_filter = go.Figure()
+                fig_filter.add_trace(go.Scatter(
+                    x=result['filtered_data']['freq'],
+                    y=result['filtered_data']['filter_profile'],
+                    mode='lines',
+                    name='Filter Profile',
+                    line=dict(color='#1E88E5', width=2))
+                )
+                fig_filter.update_layout(
+                    title="Filter Profile",
+                    height=400,
+                    plot_bgcolor='#0D0F14',
+                    paper_bgcolor='#0D0F14',
+                    showlegend=False,
+                    margin=dict(l=20, r=20, t=40, b=20),
+                    font=dict(color='white')
+                )
+                st.plotly_chart(fig_filter, use_container_width=True)
             
-            st.table(comparison_data)
+            with col2:
+                # Original vs filtered comparison
+                fig_compare = go.Figure()
+                fig_compare.add_trace(go.Scatter(
+                    x=result['original_freq'],
+                    y=result['original_intensity'],
+                    mode='lines',
+                    name='Original',
+                    line=dict(color='white', width=1))
+                )
+                fig_compare.add_trace(go.Scatter(
+                    x=result['filtered_data']['freq'],
+                    y=result['filtered_data']['intensity'],
+                    mode='lines',
+                    name='Filtered',
+                    line=dict(color='#FF5722', width=2))
+                )
+                fig_compare.update_layout(
+                    title="Original vs Filtered",
+                    height=400,
+                    plot_bgcolor='#0D0F14',
+                    paper_bgcolor='#0D0F14',
+                    showlegend=False,
+                    margin=dict(l=20, r=20, t=40, b=20),
+                    font=dict(color='white')
+                )
+                st.plotly_chart(fig_compare, use_container_width=True)
             
-            # Show details for each filter
-            st.markdown("### Filter Details")
-            for result in filtered_results_sorted:
-                with st.expander(f"🔍 {result['name']} (Transmission: {result['transmission']:.2%})", expanded=False):
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        # Filter profile plot
-                        fig_filter = go.Figure()
-                        fig_filter.add_trace(go.Scatter(
-                            x=result['filtered_data']['freq'],
-                            y=result['filtered_data']['filter_profile'],
-                            mode='lines',
-                            name='Filter Profile',
-                            line=dict(color='#1E88E5', width=2))
-                        )
-                        fig_filter.update_layout(
-                            title="Filter Profile",
-                            height=400,
-                            plot_bgcolor='#0D0F14',
-                            paper_bgcolor='#0D0F14',
-                            showlegend=False,
-                            margin=dict(l=20, r=20, t=40, b=20),
-                            font=dict(color='white')
-                        )
-                        st.plotly_chart(fig_filter, use_container_width=True)
-                    
-                    with col2:
-                        # Original vs filtered comparison
-                        fig_compare = go.Figure()
-                        fig_compare.add_trace(go.Scatter(
-                            x=result['original_freq'],
-                            y=result['original_intensity'],
-                            mode='lines',
-                            name='Original',
-                            line=dict(color='white', width=1))
-                        )
-                        fig_compare.add_trace(go.Scatter(
-                            x=result['filtered_data']['freq'],
-                            y=result['filtered_data']['intensity'],
-                            mode='lines',
-                            name='Filtered',
-                            line=dict(color='#FF5722', width=2))
-                        )
-                        fig_compare.update_layout(
-                            title="Original vs Filtered",
-                            height=400,
-                            plot_bgcolor='#0D0F14',
-                            paper_bgcolor='#0D0F14',
-                            showlegend=False,
-                            margin=dict(l=20, r=20, t=40, b=20),
-                            font=dict(color='white')
-                        )
-                        st.plotly_chart(fig_compare, use_container_width=True)
-                    
-                    # Download button
-                    with open(result['output_path'], 'rb') as f:
-                        st.download_button(
-                            label=f"📥 Download {result['name']} filtered spectrum",
-                            data=f,
-                            file_name=os.path.basename(result['output_path']),
-                            mime='text/plain',
-                            key=f"download_{result['name']}",
-                            use_container_width=True
-                        )
+            # Download button with unique key using the index
+            with open(result['output_path'], 'rb') as f:
+                st.download_button(
+                    label=f"📥 Download {result['name']} filtered spectrum",
+                    data=f,
+                    file_name=os.path.basename(result['output_path']),
+                    mime='text/plain',
+                    key=f"download_{result['name']}_{i}",  # Añadimos el índice para hacer la clave única
+                    use_container_width=True
+                )
     
     except Exception as e:
         st.markdown(f'<div class="error-box">❌ Processing error: {str(e)}</div>', unsafe_allow_html=True)
