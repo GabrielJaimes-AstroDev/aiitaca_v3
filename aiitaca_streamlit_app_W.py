@@ -156,6 +156,28 @@ st.markdown("""
         font-size: 0.8em;
         margin-left: 10px;
     }
+    
+    /* File explorer */
+    .file-explorer {
+        background-color: #2d2d2d;
+        padding: 10px;
+        border-radius: 5px;
+        margin-bottom: 15px;
+        max-height: 300px;
+        overflow-y: auto;
+    }
+    .file-explorer-header {
+        font-weight: bold;
+        margin-bottom: 5px;
+        color: #1E88E5;
+    }
+    .file-explorer-item {
+        padding: 3px 0;
+        border-bottom: 1px solid #3d3d3d;
+    }
+    .file-explorer-item:hover {
+        background-color: #3d3d3d;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -166,7 +188,10 @@ def list_downloaded_files(directory):
     """Recursively list all downloaded files with detailed information"""
     file_list = []
     try:
-        for root, _, files in os.walk(directory):
+        for root, dirs, files in os.walk(directory):
+            # Skip hidden directories
+            dirs[:] = [d for d in dirs if not d.startswith('.')]
+            
             for file in files:
                 if not file.startswith('.'):  # Ignore hidden files
                     full_path = os.path.join(root, file)
@@ -177,14 +202,16 @@ def list_downloaded_files(directory):
                             'path': rel_path,
                             'size': size,
                             'full_path': full_path,
-                            'is_file': True
+                            'is_file': True,
+                            'parent_dir': os.path.basename(root)
                         })
                     except Exception as e:
                         file_list.append({
                             'path': rel_path,
                             'size': 'Error',
                             'full_path': full_path,
-                            'is_file': True
+                            'is_file': True,
+                            'parent_dir': os.path.basename(root)
                         })
     except Exception as e:
         st.error(f"Error listing files in {directory}: {str(e)}")
@@ -230,6 +257,7 @@ def download_google_drive_folder(folder_url, output_dir):
     """Recursively download all content from a Google Drive folder"""
     try:
         folder_id = folder_url.split('folders/')[-1].split('?')[0]
+        shutil.rmtree(output_dir, ignore_errors=True)
         os.makedirs(output_dir, exist_ok=True)
         
         gdown.download_folder(
@@ -252,11 +280,8 @@ def download_resources():
     MODEL_DIR = "downloaded_models"
     FILTER_DIR = "downloaded_filters"
     
-    shutil.rmtree(MODEL_DIR, ignore_errors=True)
-    shutil.rmtree(FILTER_DIR, ignore_errors=True)
-    
     # Download models
-    with st.spinner("🔽 Downloading models (this may take a few minutes)..."):
+    with st.spinner("🔽 Downloading models (this may take several minutes)..."):
         if not download_google_drive_folder(MODEL_FOLDER_URL, MODEL_DIR):
             return None, None
     
@@ -357,12 +382,37 @@ def apply_spectral_filter(spectrum_freq, spectrum_intensity, filter_path):
             'intensity': full_filtered,
             'filter_profile': filter_intensity,
             'mask': mask,
-            'filter_name': os.path.splitext(os.path.basename(filter_path))[0]
+            'filter_name': os.path.splitext(os.path.basename(filter_path))[0],
+            'parent_dir': os.path.basename(os.path.dirname(filter_path))
         }
     
     except Exception as e:
         st.error(f"Error applying filter {os.path.basename(filter_path)}: {str(e)}")
         return None
+
+def display_file_explorer(files, title, file_type='models'):
+    """Display an interactive file explorer"""
+    st.markdown(f"<div class='file-explorer-header'>{title}</div>", unsafe_allow_html=True)
+    
+    # Group files by directory
+    dir_structure = {}
+    for file in files:
+        dir_name = file['parent_dir']
+        if dir_name not in dir_structure:
+            dir_structure[dir_name] = []
+        dir_structure[dir_name].append(file)
+    
+    # Display as expandable sections
+    with st.container():
+        for dir_name, dir_files in dir_structure.items():
+            with st.expander(f"📁 {dir_name}", expanded=False):
+                for file in dir_files:
+                    st.markdown(f"""
+                    <div class='file-explorer-item'>
+                        <b>{os.path.basename(file['path'])}</b>
+                        <span style='float: right; color: #FF9800;'>{file['size']}</span>
+                    </div>
+                    """, unsafe_allow_html=True)
 
 # =============================================
 # HEADER
@@ -397,6 +447,7 @@ if not st.session_state.resources_downloaded:
             st.session_state.downloaded_files['models'] = list_downloaded_files(st.session_state.MODEL_DIR)
             st.session_state.downloaded_files['filters'] = list_downloaded_files(st.session_state.FILTER_DIR)
             st.session_state.resources_downloaded = True
+            st.experimental_rerun()
         except Exception as e:
             st.error(f"Error processing downloaded files: {str(e)}")
             st.session_state.resources_downloaded = False
@@ -408,19 +459,19 @@ st.sidebar.title("Configuration")
 
 # Show downloaded files
 with st.sidebar.expander("📁 Downloaded Resources", expanded=True):
-    st.markdown("**Models Directory:**")
-    st.code(f"./{st.session_state.MODEL_DIR or 'Not downloaded'}", language="bash")
-    
     if st.session_state.MODEL_DIR and os.path.exists(st.session_state.MODEL_DIR):
-        st.markdown("**Directory Tree View:**")
-        st.markdown(display_directory_tree(st.session_state.MODEL_DIR, max_depth=2), unsafe_allow_html=True)
-    
-    st.markdown("**Filters Directory:**")
-    st.code(f"./{st.session_state.FILTER_DIR or 'Not downloaded'}", language="bash")
+        st.markdown("**Models Directory:**")
+        st.code(f"./{st.session_state.MODEL_DIR}", language="bash")
+        
+        with st.expander("📂 View All Model Files", expanded=False):
+            display_file_explorer(st.session_state.downloaded_files['models'], "Model Files Structure")
     
     if st.session_state.FILTER_DIR and os.path.exists(st.session_state.FILTER_DIR):
-        st.markdown("**Directory Tree View:**")
-        st.markdown(display_directory_tree(st.session_state.FILTER_DIR, max_depth=2), unsafe_allow_html=True)
+        st.markdown("**Filters Directory:**")
+        st.code(f"./{st.session_state.FILTER_DIR}", language="bash")
+        
+        with st.expander("📂 View All Filter Files", expanded=False):
+            display_file_explorer(st.session_state.downloaded_files['filters'], "Filter Files Structure")
 
 # Button to retry download
 if st.sidebar.button("🔄 Retry Download Resources"):
@@ -429,7 +480,7 @@ if st.sidebar.button("🔄 Retry Download Resources"):
         st.session_state.downloaded_files['models'] = list_downloaded_files(st.session_state.MODEL_DIR)
         st.session_state.downloaded_files['filters'] = list_downloaded_files(st.session_state.FILTER_DIR)
         st.session_state.resources_downloaded = True
-    st.experimental_rerun()
+        st.experimental_rerun()
 
 # File selector
 input_file = st.sidebar.file_uploader(
@@ -561,7 +612,7 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
         with tab2:
             # Details for each filter
             for result in filtered_results:
-                with st.expander(f"Filter: {result['name']}", expanded=True):
+                with st.expander(f"Filter: {result['name']} (from {result['filtered_data']['parent_dir']})", expanded=True):
                     col1, col2 = st.columns(2)
                     
                     with col1:
