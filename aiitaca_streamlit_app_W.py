@@ -198,6 +198,19 @@ st.markdown("""
         font-size: 1em;
         margin: 5px 0;
     }
+    
+    /* Resource panel styles */
+    .resource-panel {
+        background-color: #f5f5f5;
+        border-radius: 8px;
+        padding: 10px;
+        margin-bottom: 15px;
+    }
+    .resource-header {
+        color: #1E88E5;
+        font-weight: bold;
+        cursor: pointer;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -477,41 +490,44 @@ if not st.session_state.resources_downloaded:
 # =============================================
 st.sidebar.title("Configuration")
 
-# Show downloaded resources
+# Show downloaded resources in a collapsible panel
 with st.sidebar:
-    st.header("📁 Downloaded Resources")
-    
-    # Models section
-    if st.session_state.MODEL_DIR and os.path.exists(st.session_state.MODEL_DIR):
-        st.subheader("Models Directory")
-        st.code(f"./{st.session_state.MODEL_DIR}", language="bash")
+    with st.expander("📁 Downloaded Resources", expanded=False):
+        st.markdown('<div class="resource-panel">', unsafe_allow_html=True)
         
-        # Display model files in a compact way
-        if st.session_state.downloaded_files['models']:
-            st.markdown("**Model files:**")
-            model_files_text = "\n".join(
-                f"- {file['path']} ({file['size']})" 
-                for file in st.session_state.downloaded_files['models']
-            )
-            st.text_area("Model files list", value=model_files_text, height=150, label_visibility="collapsed")
-        else:
-            st.warning("No model files found")
-    
-    # Filters section
-    if st.session_state.FILTER_DIR and os.path.exists(st.session_state.FILTER_DIR):
-        st.subheader("Filters Directory")
-        st.code(f"./{st.session_state.FILTER_DIR}", language="bash")
+        # Models section
+        if st.session_state.MODEL_DIR and os.path.exists(st.session_state.MODEL_DIR):
+            st.subheader("Models Directory")
+            st.code(f"./{st.session_state.MODEL_DIR}", language="bash")
+            
+            # Display model files in a compact way
+            if st.session_state.downloaded_files['models']:
+                st.markdown("**Model files:**")
+                model_files_text = "\n".join(
+                    f"- {file['path']} ({file['size']})" 
+                    for file in st.session_state.downloaded_files['models']
+                )
+                st.text_area("Model files list", value=model_files_text, height=150, label_visibility="collapsed")
+            else:
+                st.warning("No model files found")
         
-        # Display filter files in a compact way
-        if st.session_state.downloaded_files['filters']:
-            st.markdown("**Filter files:**")
-            filter_files_text = "\n".join(
-                f"- {file['path']} ({file['size']})" 
-                for file in st.session_state.downloaded_files['filters']
-            )
-            st.text_area("Filter files list", value=filter_files_text, height=150, label_visibility="collapsed")
-        else:
-            st.warning("No filter files found")
+        # Filters section
+        if st.session_state.FILTER_DIR and os.path.exists(st.session_state.FILTER_DIR):
+            st.subheader("Filters Directory")
+            st.code(f"./{st.session_state.FILTER_DIR}", language="bash")
+            
+            # Display filter files in a compact way
+            if st.session_state.downloaded_files['filters']:
+                st.markdown("**Filter files:**")
+                filter_files_text = "\n".join(
+                    f"- {file['path']} ({file['size']})" 
+                    for file in st.session_state.downloaded_files['filters']
+                )
+                st.text_area("Filter files list", value=filter_files_text, height=150, label_visibility="collapsed")
+            else:
+                st.warning("No filter files found")
+
+        st.markdown('</div>', unsafe_allow_html=True)
 
     # Button to retry download
     if st.button("🔄 Retry Download Resources"):
@@ -530,7 +546,7 @@ input_file = st.sidebar.file_uploader(
 )
 
 # =============================================
-# FILTER PROCESSING AND VISUALIZATION
+# MAIN PROCESSING TABS
 # =============================================
 if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FILTER_DIR:
     with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
@@ -609,124 +625,131 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
         if failed_filters:
             st.markdown(f'<div class="warning-box">⚠ Failed to apply {len(failed_filters)} filters: {", ".join(failed_filters)}</div>', unsafe_allow_html=True)
         
-        # Create tabs for visualization
-        tab1, tab2 = st.tabs(["Interactive Spectrum Explorer", "Filter Details"])
+        # Create main tabs
+        main_tab1, main_tab2 = st.tabs(["Filter Preprocessing", "Other Functions"])
         
-        with tab1:
-            # Main interactive graph with all filters
-            fig_main = go.Figure()
+        with main_tab1:
+            # Create subtabs under Filter Preprocessing
+            subtab1, subtab2 = st.tabs(["Interactive Spectrum Explorer", "Filter Details"])
             
-            # Original spectrum
-            fig_main.add_trace(go.Scatter(
-                x=input_freq,
-                y=input_spec,
-                mode='lines',
-                name='Original Spectrum',
-                line=dict(color='white', width=2))
-            )
-            
-            # Add all filtered spectra
-            for result in filtered_results:
+            with subtab1:
+                # Main interactive graph with all filters
+                fig_main = go.Figure()
+                
+                # Original spectrum
                 fig_main.add_trace(go.Scatter(
-                    x=result['filtered_data']['freq'],
-                    y=result['filtered_data']['intensity'],
+                    x=input_freq,
+                    y=input_spec,
                     mode='lines',
-                    name=f"Filtered: {result['name']}",
-                    line=dict(width=1.5))
+                    name='Original Spectrum',
+                    line=dict(color='white', width=2))
                 )
+                
+                # Add all filtered spectra
+                for result in filtered_results:
+                    fig_main.add_trace(go.Scatter(
+                        x=result['filtered_data']['freq'],
+                        y=result['filtered_data']['intensity'],
+                        mode='lines',
+                        name=f"Filtered: {result['name']}",
+                        line=dict(width=1.5))
+                    )
+                
+                fig_main.update_layout(
+                    title="Spectrum Filtering Results - All Filters",
+                    xaxis_title="Frequency (GHz)",
+                    yaxis_title="Intensity (K)",
+                    hovermode="x unified",
+                    height=600,
+                    plot_bgcolor='#0D0F14',
+                    paper_bgcolor='#0D0F14',
+                    font=dict(color='white'),
+                    legend=dict(
+                        orientation="h",
+                        yanchor="bottom",
+                        y=1.02,
+                        xanchor="right",
+                        x=1
+                    )
+                )
+                st.plotly_chart(fig_main, use_container_width=True)
             
-            fig_main.update_layout(
-                title="Spectrum Filtering Results - All Filters",
-                xaxis_title="Frequency (GHz)",
-                yaxis_title="Intensity (K)",
-                hovermode="x unified",
-                height=600,
-                plot_bgcolor='#0D0F14',
-                paper_bgcolor='#0D0F14',
-                font=dict(color='white'),
-                legend=dict(
-                    orientation="h",
-                    yanchor="bottom",
-                    y=1.02,
-                    xanchor="right",
-                    x=1
-                )
-            )
-            st.plotly_chart(fig_main, use_container_width=True)
+            with subtab2:
+                # Show details for each filter in expandable sections
+                for result in filtered_results:
+                    with st.expander(f"🔍 {result['name']} (from {result['parent_dir']})", expanded=True):
+                        st.markdown(f"""
+                        <div class="filter-container">
+                            <div class="filter-header">{result['name']}</div>
+                            <div class="filter-subheader">Filter Profile vs Filtered Spectrum</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        # Create two columns for the plots
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            # Filter profile plot
+                            fig_filter = go.Figure()
+                            fig_filter.add_trace(go.Scatter(
+                                x=result['filtered_data']['freq'],
+                                y=result['filtered_data']['filter_profile'],
+                                mode='lines',
+                                name='Filter Profile',
+                                line=dict(color='#1E88E5', width=2))
+                            )
+                            fig_filter.update_layout(
+                                title="Filter Profile",
+                                height=400,
+                                plot_bgcolor='#0D0F14',
+                                paper_bgcolor='#0D0F14',
+                                showlegend=False,
+                                margin=dict(l=20, r=20, t=40, b=20),
+                                font=dict(color='white')
+                            )
+                            st.plotly_chart(fig_filter, use_container_width=True)
+                        
+                        with col2:
+                            # Original vs filtered comparison
+                            fig_compare = go.Figure()
+                            fig_compare.add_trace(go.Scatter(
+                                x=result['original_freq'],
+                                y=result['original_intensity'],
+                                mode='lines',
+                                name='Original',
+                                line=dict(color='white', width=1))
+                            )
+                            fig_compare.add_trace(go.Scatter(
+                                x=result['filtered_data']['freq'],
+                                y=result['filtered_data']['intensity'],
+                                mode='lines',
+                                name='Filtered',
+                                line=dict(color='#FF5722', width=2))
+                            )
+                            fig_compare.update_layout(
+                                title="Original vs Filtered",
+                                height=400,
+                                plot_bgcolor='#0D0F14',
+                                paper_bgcolor='#0D0F14',
+                                showlegend=False,
+                                margin=dict(l=20, r=20, t=40, b=20),
+                                font=dict(color='white')
+                            )
+                            st.plotly_chart(fig_compare, use_container_width=True)
+                        
+                        # Download button
+                        with open(result['output_path'], 'rb') as f:
+                            st.download_button(
+                                label=f"📥 Download {result['name']} filtered spectrum",
+                                data=f,
+                                file_name=os.path.basename(result['output_path']),
+                                mime='text/plain',
+                                key=f"download_{result['name']}",
+                                use_container_width=True
+                            )
         
-        with tab2:
-            # Show details for each filter in expandable sections
-            for result in filtered_results:
-                with st.expander(f"🔍 {result['name']} (from {result['parent_dir']})", expanded=True):
-                    st.markdown(f"""
-                    <div class="filter-container">
-                        <div class="filter-header">{result['name']}</div>
-                        <div class="filter-subheader">Filter Profile vs Filtered Spectrum</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
-                    # Create two columns for the plots
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        # Filter profile plot
-                        fig_filter = go.Figure()
-                        fig_filter.add_trace(go.Scatter(
-                            x=result['filtered_data']['freq'],
-                            y=result['filtered_data']['filter_profile'],
-                            mode='lines',
-                            name='Filter Profile',
-                            line=dict(color='#1E88E5', width=2))
-                        )
-                        fig_filter.update_layout(
-                            title="Filter Profile",
-                            height=400,
-                            plot_bgcolor='#0D0F14',
-                            paper_bgcolor='#0D0F14',
-                            showlegend=False,
-                            margin=dict(l=20, r=20, t=40, b=20),
-                            font=dict(color='white')
-                        )
-                        st.plotly_chart(fig_filter, use_container_width=True)
-                    
-                    with col2:
-                        # Original vs filtered comparison
-                        fig_compare = go.Figure()
-                        fig_compare.add_trace(go.Scatter(
-                            x=result['original_freq'],
-                            y=result['original_intensity'],
-                            mode='lines',
-                            name='Original',
-                            line=dict(color='white', width=1))
-                        )
-                        fig_compare.add_trace(go.Scatter(
-                            x=result['filtered_data']['freq'],
-                            y=result['filtered_data']['intensity'],
-                            mode='lines',
-                            name='Filtered',
-                            line=dict(color='#FF5722', width=2))
-                        )
-                        fig_compare.update_layout(
-                            title="Original vs Filtered",
-                            height=400,
-                            plot_bgcolor='#0D0F14',
-                            paper_bgcolor='#0D0F14',
-                            showlegend=False,
-                            margin=dict(l=20, r=20, t=40, b=20),
-                            font=dict(color='white')
-                        )
-                        st.plotly_chart(fig_compare, use_container_width=True)
-                    
-                    # Download button
-                    with open(result['output_path'], 'rb') as f:
-                        st.download_button(
-                            label=f"📥 Download {result['name']} filtered spectrum",
-                            data=f,
-                            file_name=os.path.basename(result['output_path']),
-                            mime='text/plain',
-                            key=f"download_{result['name']}",
-                            use_container_width=True
-                        )
+        with main_tab2:
+            st.write("Other functions will be implemented here")
     
     except Exception as e:
         st.markdown(f'<div class="error-box">❌ Processing error: {str(e)}</div>', unsafe_allow_html=True)
