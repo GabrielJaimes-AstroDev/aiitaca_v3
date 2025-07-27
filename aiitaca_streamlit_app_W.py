@@ -148,7 +148,7 @@ def read_spectrum(file_path):
     else:  # .txt, .dat, etc.
         with open(file_path, 'r') as f:
             lines = f.readlines()
-        data_lines = [line for line in lines if not (line.strip().startswith('!') or line.strip().startswith('//')]
+        data_lines = [line for line in lines if not (line.strip().startswith('!') or line.strip().startswith('//'))]
         data = np.loadtxt(data_lines)
         freq = data[:, 0]
         intensity = data[:, 1]
@@ -242,7 +242,7 @@ if input_file is not None:
                 y=input_spec,
                 mode='lines',
                 name='Original Spectrum',
-                line=dict(color='white', width=2))
+                line=dict(color='white', width=2)))
             
             # Add filtered spectra
             for result in filtered_results:
