@@ -1,9 +1,9 @@
-streamlit>=1.22.0
-numpy>=1.21.0
-matplotlib>=3.5.0
-plotly>=5.10.0
-tensorflow>=2.10.0,<2.16  # TensorFlow no soporta Python 3.13 aún
-gdown>=4.6.0
-scipy>=1.9.0
-astropy>=5.1.0  # Opcional, solo si usas FITS
-pillow>=9.0.0   # Opcional, para imágenes
+streamlit==1.22.0
+numpy==1.23.5
+matplotlib==3.7.0
+plotly==5.15.0
+tensorflow==2.15.0  # Última versión compatible con Python 3.10
+gdown==4.6.0
+scipy==1.10.1
+astropy==5.2.2      # Opcional para FITS
+pillow==10.0.0      # Opcional para imágenes
