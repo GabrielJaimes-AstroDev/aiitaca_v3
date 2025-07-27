@@ -11,18 +11,34 @@ import shutil
 from glob import glob
 
 # =============================================
+# PAGE CONFIGURATION - DEBE SER PRIMERO
+# =============================================
+st.set_page_config(
+    layout="wide", 
+    page_title="AI-ITACA | Spectrum Analyzer",
+    page_icon="🔭"
+)
+
+# =============================================
+# INITIALIZE SESSION STATE
+# =============================================
+if not hasattr(st.session_state, 'resources_downloaded'):
+    st.session_state.resources_downloaded = False
+    st.session_state.MODEL_DIR = None
+    st.session_state.FILTER_DIR = None
+    st.session_state.downloaded_files = {'models': [], 'filters': []}
+
+# =============================================
 # LOAD EXTERNAL RESOURCES
 # =============================================
-
 def load_external_file(filename):
-    """Carga el contenido de un archivo de texto con manejo robusto de errores"""
+    """Carga el contenido de un archivo de texto"""
     try:
         with open(filename, 'r', encoding='utf-8') as f:
             return f.read()
     except Exception as e:
         st.error(f"Error loading file {filename}: {str(e)}")
         return ""
-
 def load_urls_config(filename):
     """Carga las URLs de configuración con validación robusta"""
     urls = {}
