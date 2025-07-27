@@ -1,25 +1,23 @@
 import streamlit as st
 import os
 import numpy as np
-import matplotlib.pyplot as plt
 import tempfile
 import plotly.graph_objects as go
-import tensorflow as tf
 import gdown
-import shutil
 import time
 from scipy.interpolate import interp1d
-from glob import glob
 from astropy.io import fits
 import zipfile
+import shutil
 
+# Configuración de la página
 st.set_page_config(
     layout="wide", 
     page_title="AI-ITACA | Spectrum Analyzer",
     page_icon="🔭" 
 )
 
-# === CUSTOM CSS STYLES ===
+# === ESTILOS CSS ===
 st.markdown("""
 <style>
     .stApp, .main .block-container, body {
@@ -44,7 +42,6 @@ st.markdown("""
         background-color: #1E88E5 !important;
         border-radius: 5px !important;
         padding: 0.5rem 1rem !important;
-        transition: all 0.3s !important;
     }
     h1, h2, h3, h4, h5, h6 {
         color: #1E88E5 !important;
@@ -83,7 +80,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# === HEADER WITH IMAGE AND DESCRIPTION ===
+# === ENCABEZADO ===
 st.image("NGC6523_BVO_2.jpg", use_column_width=True)
 
 col1, col2 = st.columns([1, 3])
@@ -100,234 +97,289 @@ A remarkable upsurge in the complexity of molecules identified in the interstell
 </div>
 """, unsafe_allow_html=True)
 
-# === DOWNLOAD FUNCTIONS ===
-def download_and_extract_models():
+# === FUNCIONES DE DESCARGA MEJORADAS ===
+def download_folder_contents(url, output):
+    """Descarga todo el contenido de una carpeta de Google Drive"""
+    try:
+        # Primero intentamos descargar como zip
+        zip_path = os.path.join(output, 'temp_folder.zip')
+        os.makedirs(output, exist_ok=True)
+        
+        # Descargar usando gdown
+        gdown.download_folder(url, output=zip_path, quiet=True, use_cookies=False)
+        
+        # Extraer si es un zip
+        if os.path.exists(zip_path):
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                zip_ref.extractall(output)
+            os.remove(zip_path)
+        return True
+    except Exception as e:
+        st.error(f"Error downloading folder contents: {str(e)}")
+        return False
+
+def download_resources():
+    """Descarga todos los recursos necesarios"""
     MODEL_FOLDER_URL = "https://drive.google.com/drive/folders/1yMH4Ls8f8aCrCS0BTRH57HePUmXWh1AX"
     FILTER_FOLDER_URL = "https://drive.google.com/drive/folders/1s7NaWIyt5mCoiSdBanwPNCekIJ2K65_i"
+    
     MODEL_DIR = "downloaded_models"
     FILTER_DIR = "downloaded_filters"
     
-    os.makedirs(MODEL_DIR, exist_ok=True)
-    os.makedirs(FILTER_DIR, exist_ok=True)
+    # Limpiar directorios existentes
+    shutil.rmtree(MODEL_DIR, ignore_errors=True)
+    shutil.rmtree(FILTER_DIR, ignore_errors=True)
     
     progress_text = st.empty()
     progress_bar = st.progress(0)
     
-    # Download models
+    # Descargar modelos (carpeta completa)
     progress_text.text("📥 Downloading models...")
-    gdown.download_folder(MODEL_FOLDER_URL, output=MODEL_DIR, quiet=True)
-    progress_bar.progress(30)
+    if not download_folder_contents(MODEL_FOLDER_URL, MODEL_DIR):
+        return None, None
+    progress_bar.progress(50)
     
-    # Download filters
+    # Descargar filtros (archivos individuales)
     progress_text.text("📥 Downloading filters...")
-    gdown.download_folder(FILTER_FOLDER_URL, output=FILTER_DIR, quiet=True)
-    progress_bar.progress(70)
+    if not download_folder_contents(FILTER_FOLDER_URL, FILTER_DIR):
+        return None, None
+    progress_bar.progress(100)
     
-    # Verify downloads
-    model_files = [f for f in os.listdir(MODEL_DIR) if f.endswith('.keras')]
+    # Verificar contenido descargado
+    model_files = [f for f in os.listdir(MODEL_DIR) if not f.startswith('.')]
     filter_files = [f for f in os.listdir(FILTER_DIR) if f.endswith('.txt')]
     
-    if model_files and filter_files:
-        progress_text.text("✅ Download completed successfully!")
-        progress_bar.progress(100)
-        time.sleep(2)
-        progress_text.empty()
-        progress_bar.empty()
-        return MODEL_DIR, FILTER_DIR
-    else:
-        st.error("Failed to download required files")
+    if not model_files or not filter_files:
+        st.error("No se encontraron archivos válidos en las descargas")
+        return None, None
+    
+    progress_text.text("✅ Download completed successfully!")
+    time.sleep(2)
+    progress_text.empty()
+    progress_bar.empty()
+    
+    return MODEL_DIR, FILTER_DIR
+
+# === FUNCIONES DE PROCESAMIENTO ===
+def read_spectrum(file_path):
+    """Lee un archivo de espectro en varios formatos"""
+    try:
+        if file_path.endswith('.fits'):
+            with fits.open(file_path) as hdul:
+                data = hdul[1].data
+                return data['freq'], data['intensity']
+        else:
+            with open(file_path, 'r') as f:
+                lines = f.readlines()
+            data_lines = [line for line in lines if not line.strip().startswith(('!', '//'))]
+            data = np.loadtxt(data_lines)
+            return data[:, 0], data[:, 1]
+    except Exception as e:
+        st.error(f"Error reading spectrum file: {str(e)}")
         return None, None
 
-# === SPECTRUM PROCESSING FUNCTIONS ===
-def read_spectrum(file_path):
-    if file_path.endswith('.fits'):
-        with fits.open(file_path) as hdul:
-            data = hdul[1].data
-            freq = data['freq']
-            intensity = data['intensity']
-    else:  # .txt, .dat, etc.
-        with open(file_path, 'r') as f:
-            lines = f.readlines()
-        data_lines = [line for line in lines if not (line.strip().startswith('!') or line.strip().startswith('//'))]
-        data = np.loadtxt(data_lines)
-        freq = data[:, 0]
-        intensity = data[:, 1]
-    return freq, intensity
-
 def apply_filter(spectrum_freq, spectrum_intensity, filter_path):
-    filter_data = np.loadtxt(filter_path, comments='/')
-    freq_filter_hz = filter_data[:, 0]
-    intensity_filter = filter_data[:, 1]
-    freq_filter = freq_filter_hz / 1e9  # Convert to GHz
-    
-    # Normalize filter
-    if np.max(intensity_filter) > 0:
-        intensity_filter = intensity_filter / np.max(intensity_filter)
-    
-    # Interpolate spectrum to filter frequencies
-    interp_func = interp1d(spectrum_freq, spectrum_intensity, 
-                          kind='cubic', bounds_error=False, fill_value=np.nan)
-    spectrum_interpolated = interp_func(freq_filter)
-    
-    # Apply filter
-    mask = intensity_filter != 0
-    filtered_freqs = freq_filter[mask]
-    filtered_intensities = spectrum_interpolated[mask]
-    filtered_intensities = np.clip(filtered_intensities, 0, None)
-    
-    return filtered_freqs, filtered_intensities, freq_filter, intensity_filter
+    """Aplica un filtro a un espectro"""
+    try:
+        filter_data = np.loadtxt(filter_path)
+        freq_filter = filter_data[:, 0] / 1e9  # Convertir a GHz
+        intensity_filter = filter_data[:, 1]
+        
+        # Normalizar filtro
+        if np.max(intensity_filter) > 0:
+            intensity_filter = intensity_filter / np.max(intensity_filter)
+        
+        # Interpolar espectro a las frecuencias del filtro
+        valid_mask = (~np.isnan(spectrum_intensity)) & (~np.isinf(spectrum_intensity))
+        interp_func = interp1d(
+            spectrum_freq[valid_mask], 
+            spectrum_intensity[valid_mask],
+            kind='linear', bounds_error=False, fill_value=0
+        )
+        
+        # Aplicar filtro
+        filtered = interp_func(freq_filter) * intensity_filter
+        filtered = np.clip(filtered, 0, None)
+        
+        # Crear versión completa con ceros
+        full_filtered = np.zeros_like(freq_filter)
+        mask = intensity_filter > 0.01  # Umbral para considerar "activado" el filtro
+        full_filtered[mask] = filtered[mask]
+        
+        return {
+            'freq': freq_filter,
+            'intensity': full_filtered,
+            'filter_profile': intensity_filter,
+            'mask': mask
+        }
+    except Exception as e:
+        st.error(f"Error applying filter: {str(e)}")
+        return None
 
-# === MAIN APP ===
-MODEL_DIR, FILTER_DIR = download_and_extract_models()
+# === INTERFAZ PRINCIPAL ===
+# Descargar recursos al iniciar
+MODEL_DIR, FILTER_DIR = download_resources()
 
-# Sidebar configuration
+# Barra lateral para carga de archivos
 st.sidebar.title("Configuration")
 input_file = st.sidebar.file_uploader(
-    "Input Spectrum File ( . | .txt | .dat | .fits | .spec )",
-    type=None,
-    help="Drag and drop file here ( . | .txt | .dat | .fits | .spec ). Limit 200MB per file"
+    "Input Spectrum File",
+    type=['.txt', '.dat', '.fits', '.spec'],
+    help="Upload your spectrum file"
 )
 
-if input_file is not None:
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".txt") as tmp_file:
+# Procesamiento principal
+if input_file is not None and MODEL_DIR and FILTER_DIR:
+    with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
         tmp_file.write(input_file.getvalue())
         tmp_path = tmp_file.name
     
     try:
-        # Read input spectrum
+        # Leer espectro de entrada
         input_freq, input_spec = read_spectrum(tmp_path)
+        if input_freq is None:
+            raise ValueError("Invalid spectrum file")
         
-        # Process with all filters
+        # Procesar con todos los filtros
         filter_files = [f for f in os.listdir(FILTER_DIR) if f.endswith('.txt')]
         filtered_results = []
         
         for filter_file in filter_files:
-            filter_path = os.path.join(FILTER_DIR, filter_file)
-            filtered_freqs, filtered_intensities, freq_filter, intensity_filter = apply_filter(
-                input_freq, input_spec, filter_path)
-            
-            # Save filtered spectrum
             filter_name = os.path.splitext(filter_file)[0]
-            output_filename = f"filtered_{filter_name}.txt"
-            output_path = os.path.join(tempfile.gettempdir(), output_filename)
+            filter_path = os.path.join(FILTER_DIR, filter_file)
             
-            header = f"!xValues(GHz)\tyValues(K)\n!Filter: {filter_name}"
-            np.savetxt(output_path,
-                      np.column_stack((filtered_freqs, filtered_intensities)),
-                      header=header,
-                      delimiter='\t',
-                      fmt=['%.10f', '%.6e'],
-                      comments='')
-            
-            filtered_results.append({
-                'name': filter_name,
-                'original_freq': input_freq,
-                'original_intensity': input_spec,
-                'filter_freq': freq_filter,
-                'filter_intensity': intensity_filter,
-                'filtered_freq': filtered_freqs,
-                'filtered_intensity': filtered_intensities,
-                'output_path': output_path
-            })
+            result = apply_filter(input_freq, input_spec, filter_path)
+            if result is not None:
+                # Guardar resultado filtrado
+                output_filename = f"filtered_{filter_name}.txt"
+                output_path = os.path.join(tempfile.gettempdir(), output_filename)
+                np.savetxt(
+                    output_path,
+                    np.column_stack((result['freq'], result['intensity'])),
+                    header=f"Filtered spectrum using {filter_name}",
+                    delimiter='\t'
+                )
+                
+                filtered_results.append({
+                    'name': filter_name,
+                    'original_freq': input_freq,
+                    'original_intensity': input_spec,
+                    'filtered_data': result,
+                    'output_path': output_path
+                })
         
-        # Display results in tabs
+        # Mostrar resultados en pestañas
         tab1, tab2 = st.tabs(["Interactive View", "Filter Details"])
         
         with tab1:
+            # Gráfico interactivo con todos los filtros
             fig = go.Figure()
             
-            # Add original spectrum
+            # Espectro original
             fig.add_trace(go.Scatter(
                 x=input_freq,
                 y=input_spec,
                 mode='lines',
                 name='Original Spectrum',
-                line=dict(color='white', width=2)))
+                line=dict(color='white', width=1.5)))
             
-            # Add filtered spectra
+            # Espectros filtrados
             for result in filtered_results:
                 fig.add_trace(go.Scatter(
-                    x=result['filtered_freq'],
-                    y=result['filtered_intensity'],
+                    x=result['filtered_data']['freq'],
+                    y=result['filtered_data']['intensity'],
                     mode='lines',
                     name=f"Filtered: {result['name']}",
-                    line=dict(width=2))
-                )
+                    line=dict(width=1.5)))
             
             fig.update_layout(
+                title="Spectrum Filtering Results",
+                xaxis_title="Frequency (GHz)",
+                yaxis_title="Intensity (K)",
+                hovermode="x unified",
+                height=600,
                 plot_bgcolor='#0D0F14',
                 paper_bgcolor='#0D0F14',
-                margin=dict(l=50, r=50, t=60, b=50),
-                xaxis_title='Frequency (GHz)',
-                yaxis_title='Intensity (K)',
-                hovermode='x unified',
+                font=dict(color='white'),
                 legend=dict(
                     orientation="h",
                     yanchor="bottom",
                     y=1.02,
                     xanchor="right",
                     x=1
-                ),
-                height=600,
-                font=dict(color='white'),
-                xaxis=dict(gridcolor='#3A3A3A'),
-                yaxis=dict(gridcolor='#3A3A3A')
+                )
             )
-            
-            st.plotly_chart(fig, use_column_width=True)
+            st.plotly_chart(fig, use_container_width=True)
         
         with tab2:
+            # Detalles por cada filtro
             for result in filtered_results:
-                with st.expander(f"Filter: {result['name']}"):
+                with st.expander(f"Filter: {result['name']}", expanded=True):
                     col1, col2 = st.columns(2)
                     
                     with col1:
-                        st.markdown("**Original vs Filtered**")
-                        fig1 = go.Figure()
-                        fig1.add_trace(go.Scatter(
+                        # Gráfico del filtro
+                        fig_filter = go.Figure()
+                        fig_filter.add_trace(go.Scatter(
+                            x=result['filtered_data']['freq'],
+                            y=result['filtered_data']['filter_profile'],
+                            mode='lines',
+                            name='Filter Profile',
+                            line=dict(color='blue')))
+                        fig_filter.update_layout(
+                            title="Filter Profile",
+                            height=300,
+                            plot_bgcolor='#0D0F14',
+                            paper_bgcolor='#0D0F14'
+                        )
+                        st.plotly_chart(fig_filter, use_container_width=True)
+                    
+                    with col2:
+                        # Gráfico comparativo
+                        fig_compare = go.Figure()
+                        fig_compare.add_trace(go.Scatter(
                             x=result['original_freq'],
                             y=result['original_intensity'],
                             mode='lines',
                             name='Original',
-                            line=dict(color='white')))
-                        fig1.add_trace(go.Scatter(
-                            x=result['filtered_freq'],
-                            y=result['filtered_intensity'],
+                            line=dict(color='white', width=1)))
+                        fig_compare.add_trace(go.Scatter(
+                            x=result['filtered_data']['freq'],
+                            y=result['filtered_data']['intensity'],
                             mode='lines',
                             name='Filtered',
-                            line=dict(color='red')))
-                        fig1.update_layout(height=300)
-                        st.plotly_chart(fig1, use_container_width=True)
+                            line=dict(color='red', width=1)))
+                        fig_compare.update_layout(
+                            title="Original vs Filtered",
+                            height=300,
+                            plot_bgcolor='#0D0F14',
+                            paper_bgcolor='#0D0F14'
+                        )
+                        st.plotly_chart(fig_compare, use_container_width=True)
                     
-                    with col2:
-                        st.markdown("**Filter Profile**")
-                        fig2 = go.Figure()
-                        fig2.add_trace(go.Scatter(
-                            x=result['filter_freq'],
-                            y=result['filter_intensity'],
-                            mode='lines',
-                            line=dict(color='blue')))
-                        fig2.update_layout(height=300)
-                        st.plotly_chart(fig2, use_container_width=True)
-                    
-                    st.download_button(
-                        label=f"Download Filtered Spectrum ({result['name']})",
-                        data=open(result['output_path'], 'rb').read(),
-                        file_name=os.path.basename(result['output_path']),
-                        mime='text/plain'
-                    )
+                    # Botón de descarga
+                    with open(result['output_path'], 'rb') as f:
+                        st.download_button(
+                            label=f"Download {result['name']} filtered spectrum",
+                            data=f,
+                            file_name=os.path.basename(result['output_path']),
+                            mime='text/plain'
+                        )
     
     except Exception as e:
-        st.error(f"Error processing spectrum: {str(e)}")
+        st.error(f"Processing error: {str(e)}")
     finally:
         os.unlink(tmp_path)
+elif not MODEL_DIR or not FILTER_DIR:
+    st.error("Required resources could not be downloaded. Please try again later.")
 else:
-    st.info("Please upload an input spectrum file to begin analysis.")
+    st.info("Please upload a spectrum file to begin analysis")
 
-# Instructions in sidebar
+# Instrucciones en la barra lateral
 st.sidebar.markdown("""
 **Instructions:**
-1. Upload your input spectrum file
+1. Upload your spectrum file
 2. The system will automatically apply all filters
 3. View results in the interactive tabs
+4. Download filtered spectra as needed
 """)
