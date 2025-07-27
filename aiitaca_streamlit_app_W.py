@@ -13,24 +13,74 @@ from glob import glob
 # =============================================
 # LOAD EXTERNAL RESOURCES
 # =============================================
-def load_external_file(filename):
-    with open(filename, 'r', encoding='utf-8') as f:
-        return f.read()
 
-# Load external resources
-CSS_STYLES = load_external_file('styles_css.txt')
+def load_external_file(filename):
+    """Carga el contenido de un archivo de texto con manejo robusto de errores"""
+    try:
+        with open(filename, 'r', encoding='utf-8') as f:
+            return f.read()
+    except Exception as e:
+        st.error(f"Error loading file {filename}: {str(e)}")
+        return ""
+
+def load_urls_config(filename):
+    """Carga las URLs de configuración con validación robusta"""
+    urls = {}
+    required_keys = ['MODEL_FOLDER_URL', 'FILTER_FOLDER_URL']
+    
+    try:
+        with open(filename, 'r') as f:
+            for line_number, line in enumerate(f, 1):
+                line = line.strip()
+                # Ignorar líneas vacías o comentarios
+                if not line or line.startswith('#'):
+                    continue
+                
+                # Verificar formato correcto
+                if '=' not in line:
+                    st.warning(f"Formato inválido en {filename}, línea {line_number}: '{line}' - debe ser 'clave=valor'")
+                    continue
+                
+                key, value = line.split('=', 1)  # Dividir solo en el primer =
+                key = key.strip()
+                value = value.strip()
+                
+                if not value:
+                    st.warning(f"Valor vacío en {filename}, línea {line_number} para clave '{key}'")
+                    continue
+                
+                urls[key] = value
+    
+    except FileNotFoundError:
+        st.error(f"Archivo de configuración no encontrado: {filename}")
+    except Exception as e:
+        st.error(f"Error inesperado leyendo {filename}: {str(e)}")
+    
+    # Verificar URLs requeridas
+    missing_keys = [key for key in required_keys if key not in urls]
+    if missing_keys:
+        st.error(f"Faltan URLs requeridas en {filename}: {', '.join(missing_keys)}")
+    
+    return urls
+
+# Cargar recursos externos
+CSS_STYLES = load_external_file('styles.css.txt')
 INITIAL_DESCRIPTION = load_external_file('description.txt')
 
-# Load URLs from file
-urls = {}
-with open('urls.txt') as f:
-    for line in f:
-        if '=' in line:
-            key, value = line.strip().split('=')
-            urls[key] = value
-
+# Cargar configuración de URLs
+urls = load_urls_config('urls.txt')
 MODEL_FOLDER_URL = urls.get('MODEL_FOLDER_URL')
 FILTER_FOLDER_URL = urls.get('FILTER_FOLDER_URL')
+
+# Validación crítica - detener la aplicación si faltan URLs esenciales
+if not MODEL_FOLDER_URL or not FILTER_FOLDER_URL:
+    st.error("""
+    ❌ Configuración esencial faltante. La aplicación no puede continuar.
+    Por favor verifique que el archivo urls.txt contiene:
+    MODEL_FOLDER_URL=su_url_aqui
+    FILTER_FOLDER_URL=su_url_aqui
+    """)
+    st.stop()  # Detiene la ejecución completamente
 
 # =============================================
 # INITIALIZE SESSION STATE
