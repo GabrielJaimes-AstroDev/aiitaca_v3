@@ -128,34 +128,67 @@ st.markdown("""
     .stProgress > div > div > div {
         background-color: #1E88E5 !important;
     }
+    
+    /* Tree view for directories */
+    .tree-view {
+        font-family: 'Courier New', monospace;
+        font-size: 0.85em;
+        margin-left: 15px;
+    }
+    .tree-view .directory {
+        color: #1E88E5;
+        font-weight: bold;
+    }
+    .tree-view .file {
+        color: #4CAF50;
+    }
+    .tree-view .size {
+        color: #FF9800;
+        font-size: 0.8em;
+        margin-left: 10px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 # =============================================
-# ENCABEZADO
+# FUNCIONES AUXILIARES
 # =============================================
-st.image("NGC6523_BVO_2.jpg", use_column_width=True)
+def get_file_size(path):
+    """Obtiene el tamaño del archivo en formato legible"""
+    size = os.path.getsize(path)
+    for unit in ['B', 'KB', 'MB', 'GB']:
+        if size < 1024.0:
+            return f"{size:.1f} {unit}"
+        size /= 1024.0
+    return f"{size:.1f} TB"
 
-col1, col2 = st.columns([1, 3])
-with col1:
-    st.empty()
+def display_directory_tree(directory, max_depth=3, current_depth=0):
+    """Muestra la estructura de directorios como un árbol"""
+    if not os.path.exists(directory):
+        return f"<div class='error-box'>Directory not found: {directory}</div>"
     
-with col2:
-    st.markdown('<p class="main-title">AI-ITACA | Artificial Intelligence Integral Tool for AstroChemical Analysis</p>', unsafe_allow_html=True)
-    st.markdown('<p class="subtitle">Molecular Spectrum Analyzer</p>', unsafe_allow_html=True)
+    tree_html = "<div class='tree-view'>"
+    
+    try:
+        items = sorted(os.listdir(directory))
+        for item in items:
+            if item.startswith('.'):  # Ignorar archivos ocultos
+                continue
+                
+            full_path = os.path.join(directory, item)
+            if os.path.isdir(full_path):
+                tree_html += f"<div class='directory'>📁 {item}</div>"
+                if current_depth < max_depth:
+                    tree_html += display_directory_tree(full_path, max_depth, current_depth+1)
+            else:
+                size = get_file_size(full_path)
+                tree_html += f"<div class='file'>📄 {item} <span class='size'>{size}</span></div>"
+    except Exception as e:
+        tree_html += f"<div class='error-box'>Error reading directory: {str(e)}</div>"
+    
+    tree_html += "</div>"
+    return tree_html
 
-st.markdown("""
-<div class="description-panel">
-A remarkable upsurge in the complexity of molecules identified in the interstellar medium (ISM) is currently occurring, 
-with over 80 new species discovered in the last three years. A number of them have been emphasized by prebiotic 
-experiments as vital molecular building blocks of life. Since our Solar System was formed from a molecular cloud in the ISM, 
-it prompts the query as to whether the rich interstellar chemical reservoir could have played a role in the emergence of life.
-</div>
-""", unsafe_allow_html=True)
-
-# =============================================
-# FUNCIONES DE DESCARGA
-# =============================================
 def download_google_drive_folder(folder_url, output_dir):
     """Descarga recursivamente todo el contenido de una carpeta de Google Drive"""
     try:
@@ -197,19 +230,6 @@ def download_resources():
     
     return MODEL_DIR, FILTER_DIR
 
-def list_downloaded_files(directory):
-    """Lista recursivamente todos los archivos descargados"""
-    file_list = []
-    for root, _, files in os.walk(directory):
-        for file in files:
-            if not file.startswith('.'):
-                rel_path = os.path.relpath(os.path.join(root, file), directory)
-                file_list.append(rel_path)
-    return file_list
-
-# =============================================
-# FUNCIONES DE PROCESAMIENTO
-# =============================================
 def robust_read_file(file_path):
     """Lee archivos de espectro o filtro con manejo robusto de formatos"""
     try:
@@ -308,6 +328,28 @@ def apply_spectral_filter(spectrum_freq, spectrum_intensity, filter_path):
         return None
 
 # =============================================
+# ENCABEZADO
+# =============================================
+st.image("NGC6523_BVO_2.jpg", use_column_width=True)
+
+col1, col2 = st.columns([1, 3])
+with col1:
+    st.empty()
+    
+with col2:
+    st.markdown('<p class="main-title">AI-ITACA | Artificial Intelligence Integral Tool for AstroChemical Analysis</p>', unsafe_allow_html=True)
+    st.markdown('<p class="subtitle">Molecular Spectrum Analyzer</p>', unsafe_allow_html=True)
+
+st.markdown("""
+<div class="description-panel">
+A remarkable upsurge in the complexity of molecules identified in the interstellar medium (ISM) is currently occurring, 
+with over 80 new species discovered in the last three years. A number of them have been emphasized by prebiotic 
+experiments as vital molecular building blocks of life. Since our Solar System was formed from a molecular cloud in the ISM, 
+it prompts the query as to whether the rich interstellar chemical reservoir could have played a role in the emergence of life.
+</div>
+""", unsafe_allow_html=True)
+
+# =============================================
 # INTERFAZ PRINCIPAL
 # =============================================
 # Inicializar estado de la sesión
@@ -335,20 +377,16 @@ with st.sidebar.expander("📁 Downloaded Resources", expanded=True):
     st.markdown("**Models Directory:**")
     st.code(f"./{st.session_state.MODEL_DIR or 'Not downloaded'}", language="bash")
     
-    if st.session_state.downloaded_files['models']:
-        st.markdown("**Model Files (first 5):**")
-        for file in st.session_state.downloaded_files['models'][:5]:
-            st.markdown(f'<div class="file-list">{file}</div>', unsafe_allow_html=True)
-        if len(st.session_state.downloaded_files['models']) > 5:
-            st.markdown(f"*+ {len(st.session_state.downloaded_files['models']) - 5} more files...*")
+    if st.session_state.MODEL_DIR and os.path.exists(st.session_state.MODEL_DIR):
+        st.markdown("**Directory Tree View:**")
+        st.markdown(display_directory_tree(st.session_state.MODEL_DIR, max_depth=2), unsafe_allow_html=True)
     
     st.markdown("**Filters Directory:**")
     st.code(f"./{st.session_state.FILTER_DIR or 'Not downloaded'}", language="bash")
     
-    if st.session_state.downloaded_files['filters']:
-        st.markdown("**Filter Files:**")
-        for file in st.session_state.downloaded_files['filters']:
-            st.markdown(f'<div class="file-list">{file}</div>', unsafe_allow_html=True)
+    if st.session_state.FILTER_DIR and os.path.exists(st.session_state.FILTER_DIR):
+        st.markdown("**Directory Tree View:**")
+        st.markdown(display_directory_tree(st.session_state.FILTER_DIR, max_depth=2), unsafe_allow_html=True)
 
 # Botón para reintentar descarga
 if st.sidebar.button("🔄 Retry Download Resources"):
