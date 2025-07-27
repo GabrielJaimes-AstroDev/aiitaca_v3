@@ -25,194 +25,81 @@ if not hasattr(st.session_state, 'resources_downloaded'):
 st.set_page_config(
     layout="wide", 
     page_title="AI-ITACA | Spectrum Analyzer",
-    page_icon="🔭" 
+    page_icon="🔭"
 )
+
+# =============================================
+# LOAD EXTERNAL RESOURCES
+# =============================================
+def load_external_file(filename):
+    """Carga el contenido de un archivo de texto"""
+    try:
+        with open(filename, 'r', encoding='utf-8') as f:
+            return f.read()
+    except Exception as e:
+        st.error(f"Error loading file {filename}: {str(e)}")
+        return ""
+
+def load_urls_config(filename):
+    """Carga las URLs de configuración con validación robusta"""
+    urls = {}
+    required_keys = ['MODEL_FOLDER_URL', 'FILTER_FOLDER_URL']
+    
+    try:
+        with open(filename, 'r') as f:
+            for line_number, line in enumerate(f, 1):
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                
+                if '=' not in line:
+                    st.warning(f"Formato inválido en {filename}, línea {line_number}: '{line}' - debe ser 'clave=valor'")
+                    continue
+                
+                key, value = line.split('=', 1)
+                key = key.strip()
+                value = value.strip()
+                
+                if not value:
+                    st.warning(f"Valor vacío en {filename}, línea {line_number} para clave '{key}'")
+                    continue
+                
+                urls[key] = value
+    
+    except FileNotFoundError:
+        st.error(f"Archivo de configuración no encontrado: {filename}")
+    except Exception as e:
+        st.error(f"Error inesperado leyendo {filename}: {str(e)}")
+    
+    missing_keys = [key for key in required_keys if key not in urls]
+    if missing_keys:
+        st.error(f"Faltan URLs requeridas en {filename}: {', '.join(missing_keys)}")
+    
+    return urls
+
+# Cargar recursos externos
+CSS_STYLES = load_external_file('styles_css.txt')
+INITIAL_DESCRIPTION = load_external_file('description.txt')
+
+# Cargar configuración de URLs
+urls = load_urls_config('urls.txt')
+MODEL_FOLDER_URL = urls.get('MODEL_FOLDER_URL')
+FILTER_FOLDER_URL = urls.get('FILTER_FOLDER_URL')
+
+# Validación crítica
+if not MODEL_FOLDER_URL or not FILTER_FOLDER_URL:
+    st.error("""
+    ❌ Configuración esencial faltante. La aplicación no puede continuar.
+    Por favor verifique que el archivo urls.txt contiene:
+    MODEL_FOLDER_URL=su_url_aqui
+    FILTER_FOLDER_URL=su_url_aqui
+    """)
+    st.stop()
 
 # =============================================
 # CSS STYLES
 # =============================================
-st.markdown("""
-<style>
-    /* General styles */
-    .stApp, .main .block-container, body {
-        background-color: #15181c !important;
-        font-family: 'Arial', sans-serif;
-    }
-    
-    /* Text and controls */
-    body, .stMarkdown, .stText, 
-    .stSlider [data-testid="stMarkdownContainer"],
-    .stSelectbox, .stNumberInput, .stTextInput,
-    .stTabs [data-baseweb="tab"] {
-        color: #FFFFFF !important;
-    }
-    
-    /* Sidebar */
-    [data-testid="stSidebar"] {
-        background-color: #FFFFFF !important;
-        border-right: 1px solid #e0e0e0;
-    }
-    [data-testid="stSidebar"] * {
-        color: #000000 !important;
-    }
-    
-    /* Buttons */
-    .stButton>button {
-        border: 2px solid #1E88E5 !important;
-        color: white !important;
-        background-color: #1E88E5 !important;
-        border-radius: 5px !important;
-        padding: 0.5rem 1rem !important;
-        transition: all 0.3s ease;
-    }
-    .stButton>button:hover {
-        background-color: #0D47A1 !important;
-        border-color: #0D47A1 !important;
-    }
-    
-    /* Titles */
-    h1, h2, h3, h4, h5, h6 {
-        color: #1E88E5 !important;
-        text-shadow: 1px 1px 2px rgba(0,0,0,0.3);
-    }
-    
-    /* Panels */
-    .description-panel {
-        background-color: white !important;
-        color: black !important;
-        padding: 20px;
-        border-radius: 10px;
-        margin: 15px 0;
-        border-left: 5px solid #1E88E5 !important;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-    }
-    
-    /* Graphs */
-    .plotly-graph-div {
-        background-color: #0D0F14 !important;
-        border-radius: 8px;
-    }
-    
-    /* File list */
-    .file-list {
-        background-color: #2d2d2d !important;
-        padding: 10px;
-        border-radius: 5px;
-        margin: 5px 0;
-        font-family: 'Courier New', monospace;
-        font-size: 0.9em;
-        overflow-x: auto;
-    }
-    
-    /* Status messages */
-    .success-box {
-        background-color: #4CAF50 !important;
-        color: white !important;
-        padding: 15px;
-        border-radius: 5px;
-        margin-bottom: 15px;
-    }
-    .warning-box {
-        background-color: #FF9800 !important;
-        color: white !important;
-        padding: 15px;
-        border-radius: 5px;
-        margin-bottom: 15px;
-    }
-    .error-box {
-        background-color: #F44336 !important;
-        color: white !important;
-        padding: 15px;
-        border-radius: 5px;
-        margin-bottom: 15px;
-    }
-    
-    /* Tabs */
-    .stTabs [aria-selected="true"] {
-        background-color: #1E88E5 !important;
-        color: white !important;
-    }
-    
-    /* Progress bar */
-    .stProgress > div > div > div {
-        background-color: #1E88E5 !important;
-    }
-    
-    /* Tree view for directories */
-    .tree-view {
-        font-family: 'Courier New', monospace;
-        font-size: 0.85em;
-        margin-left: 15px;
-    }
-    .tree-view .directory {
-        color: #1E88E5;
-        font-weight: bold;
-    }
-    .tree-view .file {
-        color: #4CAF50;
-    }
-    .tree-view .size {
-        color: #FF9800;
-        font-size: 0.8em;
-        margin-left: 10px;
-    }
-    
-    /* File explorer */
-    .file-explorer {
-        background-color: #2d2d2d;
-        padding: 10px;
-        border-radius: 5px;
-        margin-bottom: 15px;
-        max-height: 300px;
-        overflow-y: auto;
-    }
-    .file-explorer-header {
-        font-weight: bold;
-        margin-bottom: 5px;
-        color: #1E88E5;
-    }
-    .file-explorer-item {
-        padding: 3px 0;
-        border-bottom: 1px solid #3d3d3d;
-    }
-    .file-explorer-item:hover {
-        background-color: #3d3d3d;
-    }
-    
-    /* New styles for filter visualization */
-    .filter-container {
-        background-color: #1e1e1e;
-        border-radius: 8px;
-        padding: 15px;
-        margin-bottom: 15px;
-    }
-    .filter-header {
-        color: #1E88E5;
-        font-size: 1.2em;
-        margin-bottom: 10px;
-        border-bottom: 1px solid #3d3d3d;
-        padding-bottom: 5px;
-    }
-    .filter-subheader {
-        color: #FF9800;
-        font-size: 1em;
-        margin: 5px 0;
-    }
-    
-    /* Resource panel styles */
-    .resource-panel {
-        background-color: #f5f5f5;
-        border-radius: 8px;
-        padding: 10px;
-        margin-bottom: 15px;
-    }
-    .resource-header {
-        color: #1E88E5;
-        font-weight: bold;
-        cursor: pointer;
-    }
-</style>
-""", unsafe_allow_html=True)
+st.markdown(f"<style>{CSS_STYLES}</style>", unsafe_allow_html=True)
 
 # =============================================
 # HELPER FUNCTIONS
@@ -222,11 +109,10 @@ def list_downloaded_files(directory):
     file_list = []
     try:
         for root, dirs, files in os.walk(directory):
-            # Skip hidden directories
             dirs[:] = [d for d in dirs if not d.startswith('.')]
             
             for file in files:
-                if not file.startswith('.'):  # Ignore hidden files
+                if not file.startswith('.'):
                     full_path = os.path.join(root, file)
                     rel_path = os.path.relpath(full_path, directory)
                     try:
@@ -259,33 +145,6 @@ def get_file_size(path):
         size /= 1024.0
     return f"{size:.1f} TB"
 
-def display_directory_tree(directory, max_depth=3, current_depth=0):
-    """Display directory structure as a tree"""
-    if not os.path.exists(directory):
-        return f"<div class='error-box'>Directory not found: {directory}</div>"
-    
-    tree_html = "<div class='tree-view'>"
-    
-    try:
-        items = sorted(os.listdir(directory))
-        for item in items:
-            if item.startswith('.'):  # Ignore hidden files
-                continue
-                
-            full_path = os.path.join(directory, item)
-            if os.path.isdir(full_path):
-                tree_html += f"<div class='directory'>📁 {item}</div>"
-                if current_depth < max_depth:
-                    tree_html += display_directory_tree(full_path, max_depth, current_depth+1)
-            else:
-                size = get_file_size(full_path)
-                tree_html += f"<div class='file'>📄 {item} <span class='size'>{size}</span></div>"
-    except Exception as e:
-        tree_html += f"<div class='error-box'>Error reading directory: {str(e)}</div>"
-    
-    tree_html += "</div>"
-    return tree_html
-
 def download_google_drive_folder(folder_url, output_dir):
     """Recursively download all content from a Google Drive folder"""
     try:
@@ -307,23 +166,15 @@ def download_google_drive_folder(folder_url, output_dir):
 
 def download_resources():
     """Download all required resources"""
-    MODEL_FOLDER_URL = "https://drive.google.com/drive/folders/1drIyt-xaeWxmaMLxyuLJa2i7GtPn-hVe?usp=sharing"
-    FILTER_FOLDER_URL = "https://drive.google.com/drive/folders/1AwGL2yh5L0cf8wUzIe9QA8kij9ihYRCQ?usp=sharing"
-    
-    MODEL_DIR = "downloaded_models"
-    FILTER_DIR = "downloaded_filters"
-    
-    # Download models
     with st.spinner("🔽 Downloading models (this may take several minutes)..."):
-        if not download_google_drive_folder(MODEL_FOLDER_URL, MODEL_DIR):
+        if not download_google_drive_folder(MODEL_FOLDER_URL, "downloaded_models"):
             return None, None
     
-    # Download filters
     with st.spinner("🔽 Downloading filters..."):
-        if not download_google_drive_folder(FILTER_FOLDER_URL, FILTER_DIR):
+        if not download_google_drive_folder(FILTER_FOLDER_URL, "downloaded_filters"):
             return None, None
     
-    return MODEL_DIR, FILTER_DIR
+    return "downloaded_models", "downloaded_filters"
 
 def robust_read_file(file_path):
     """Read spectrum or filter files with robust format handling"""
@@ -373,27 +224,25 @@ def apply_spectral_filter(spectrum_freq, spectrum_intensity, filter_path):
     try:
         # Read filter data
         filter_freq, filter_intensity = robust_read_file(filter_path)
-        if filter_freq is None:
+        if filter_freq is None or filter_intensity is None:
             return None
         
-        # Convert to GHz if needed
-        if np.mean(filter_freq) > 1e6:
+        # Ensure frequencies are in GHz
+        if np.mean(filter_freq) > 1e6:  # If in Hz, convert to GHz
             filter_freq = filter_freq / 1e9
         
-        # Normalize filter
-        max_intensity = np.max(filter_intensity)
-        if max_intensity > 0:
-            filter_intensity = filter_intensity / max_intensity
+        # Normalize filter profile
+        filter_intensity = filter_intensity / np.max(filter_intensity)
         
         # Create mask for significant regions
-        mask = filter_intensity > 0.01
+        significant_mask = filter_intensity > 0.01
         
         # Validate input spectrum
         valid_points = (~np.isnan(spectrum_intensity)) & (~np.isinf(spectrum_intensity))
         if np.sum(valid_points) < 2:
             raise ValueError("Spectrum doesn't have enough valid points")
         
-        # Interpolation
+        # Interpolate spectrum to filter frequencies
         interp_func = interp1d(
             spectrum_freq[valid_points],
             spectrum_intensity[valid_points],
@@ -402,19 +251,18 @@ def apply_spectral_filter(spectrum_freq, spectrum_intensity, filter_path):
             fill_value=0.0
         )
         
-        # Apply filter
-        filtered_data = interp_func(filter_freq) * filter_intensity
-        filtered_data = np.clip(filtered_data, 0, None)
+        # Apply filter by multiplying spectrum with filter profile
+        filtered_intensity = interp_func(filter_freq) * filter_intensity
         
-        # Full version with zeros
+        # Create full output with zeros outside significant regions
         full_filtered = np.zeros_like(filter_freq)
-        full_filtered[mask] = filtered_data[mask]
+        full_filtered[significant_mask] = filtered_intensity[significant_mask]
         
         return {
             'freq': filter_freq,
             'intensity': full_filtered,
             'filter_profile': filter_intensity,
-            'mask': mask,
+            'mask': significant_mask,
             'filter_name': os.path.splitext(os.path.basename(filter_path))[0],
             'parent_dir': os.path.basename(os.path.dirname(filter_path))
         }
@@ -427,7 +275,6 @@ def display_file_explorer(files, title, file_type='models'):
     """Display an interactive file explorer"""
     st.markdown(f"<div class='file-explorer-header'>{title}</div>", unsafe_allow_html=True)
     
-    # Group files by directory
     dir_structure = {}
     for file in files:
         dir_name = file['parent_dir']
@@ -435,7 +282,6 @@ def display_file_explorer(files, title, file_type='models'):
             dir_structure[dir_name] = []
         dir_structure[dir_name].append(file)
     
-    # Display as expandable sections
     with st.container():
         for dir_name, dir_files in dir_structure.items():
             with st.expander(f"📁 {dir_name}", expanded=False):
@@ -460,19 +306,15 @@ with col2:
     st.markdown('<p class="main-title">AI-ITACA | Artificial Intelligence Integral Tool for AstroChemical Analysis</p>', unsafe_allow_html=True)
     st.markdown('<p class="subtitle">Molecular Spectrum Analyzer</p>', unsafe_allow_html=True)
 
-st.markdown("""
+st.markdown(f"""
 <div class="description-panel">
-A remarkable upsurge in the complexity of molecules identified in the interstellar medium (ISM) is currently occurring, 
-with over 80 new species discovered in the last three years. A number of them have been emphasized by prebiotic 
-experiments as vital molecular building blocks of life. Since our Solar System was formed from a molecular cloud in the ISM, 
-it prompts the query as to whether the rich interstellar chemical reservoir could have played a role in the emergence of life.
+{INITIAL_DESCRIPTION}
 </div>
 """, unsafe_allow_html=True)
 
 # =============================================
 # MAIN INTERFACE
 # =============================================
-# Download resources on startup
 if not st.session_state.resources_downloaded:
     st.session_state.MODEL_DIR, st.session_state.FILTER_DIR = download_resources()
     if st.session_state.MODEL_DIR and st.session_state.FILTER_DIR:
@@ -490,17 +332,14 @@ if not st.session_state.resources_downloaded:
 # =============================================
 st.sidebar.title("Configuration")
 
-# Show downloaded resources in a collapsible panel
 with st.sidebar:
     with st.expander("📁 Downloaded Resources", expanded=False):
         st.markdown('<div class="resource-panel">', unsafe_allow_html=True)
         
-        # Models section
         if st.session_state.MODEL_DIR and os.path.exists(st.session_state.MODEL_DIR):
             st.subheader("Models Directory")
             st.code(f"./{st.session_state.MODEL_DIR}", language="bash")
             
-            # Display model files in a compact way
             if st.session_state.downloaded_files['models']:
                 st.markdown("**Model files:**")
                 model_files_text = "\n".join(
@@ -511,12 +350,10 @@ with st.sidebar:
             else:
                 st.warning("No model files found")
         
-        # Filters section
         if st.session_state.FILTER_DIR and os.path.exists(st.session_state.FILTER_DIR):
             st.subheader("Filters Directory")
             st.code(f"./{st.session_state.FILTER_DIR}", language="bash")
             
-            # Display filter files in a compact way
             if st.session_state.downloaded_files['filters']:
                 st.markdown("**Filter files:**")
                 filter_files_text = "\n".join(
@@ -529,7 +366,6 @@ with st.sidebar:
 
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # Button to retry download
     if st.button("🔄 Retry Download Resources"):
         st.session_state.MODEL_DIR, st.session_state.FILTER_DIR = download_resources()
         if st.session_state.MODEL_DIR and st.session_state.FILTER_DIR:
@@ -538,7 +374,6 @@ with st.sidebar:
             st.session_state.resources_downloaded = True
             st.rerun()
 
-# File selector
 input_file = st.sidebar.file_uploader(
     "Input Spectrum File",
     type=['.txt', '.dat', '.fits', '.spec'],
@@ -546,7 +381,7 @@ input_file = st.sidebar.file_uploader(
 )
 
 # =============================================
-# MAIN PROCESSING TABS
+# IMPROVED FILTER PROCESSING AND VISUALIZATION
 # =============================================
 if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FILTER_DIR:
     with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
@@ -554,12 +389,16 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
         tmp_path = tmp_file.name
     
     try:
-        # Read input spectrum
+        # Read input spectrum with robust handling
         input_freq, input_spec = robust_read_file(tmp_path)
-        if input_freq is None:
+        if input_freq is None or input_spec is None:
             raise ValueError("Could not read the spectrum file")
         
-        # Get all filter files
+        # Convert input frequencies to GHz if needed
+        if np.mean(input_freq) > 1e6:  # If in Hz, convert to GHz
+            input_freq = input_freq / 1e9
+        
+        # Get all filter files recursively
         filter_files = []
         for root, _, files in os.walk(st.session_state.FILTER_DIR):
             for file in files:
@@ -577,7 +416,7 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
         filtered_results = []
         failed_filters = []
         
-        with st.spinner("🔍 Applying filters and saving results..."):
+        with st.spinner("🔍 Applying filters and analyzing results..."):
             progress_bar = st.progress(0)
             status_text = st.empty()
             
@@ -602,12 +441,18 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
                         comments=''
                     )
                     
+                    # Calculate additional metrics
+                    original_area = np.trapz(input_spec, input_freq)
+                    filtered_area = np.trapz(result['intensity'], result['freq'])
+                    transmission = filtered_area / original_area if original_area > 0 else 0
+                    
                     filtered_results.append({
                         'name': result['filter_name'],
                         'original_freq': input_freq,
                         'original_intensity': input_spec,
                         'filtered_data': result,
                         'output_path': output_path,
+                        'transmission': transmission,
                         'parent_dir': result['parent_dir']
                     })
                 else:
@@ -616,7 +461,7 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
             progress_bar.empty()
             status_text.empty()
         
-        # Show results
+        # Show processing results
         if not filtered_results:
             raise ValueError(f"No filters were successfully applied. {len(failed_filters)} filters failed.")
         
@@ -625,131 +470,148 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
         if failed_filters:
             st.markdown(f'<div class="warning-box">⚠ Failed to apply {len(failed_filters)} filters: {", ".join(failed_filters)}</div>', unsafe_allow_html=True)
         
-        # Create main tabs
-        main_tab1, main_tab2 = st.tabs(["Filter Preprocessing", "Other Functions"])
+        # Create tabs for visualization
+        tab1, tab2 = st.tabs(["Interactive Spectrum Explorer", "Filter Comparison"])
         
-        with main_tab1:
-            # Create subtabs under Filter Preprocessing
-            subtab1, subtab2 = st.tabs(["Interactive Spectrum Explorer", "Filter Details"])
+        with tab1:
+            # Main interactive graph with all filters
+            fig_main = go.Figure()
             
-            with subtab1:
-                # Main interactive graph with all filters
-                fig_main = go.Figure()
-                
-                # Original spectrum
+            # Original spectrum
+            fig_main.add_trace(go.Scatter(
+                x=input_freq,
+                y=input_spec,
+                mode='lines',
+                name='Original Spectrum',
+                line=dict(color='white', width=2),
+                hoverinfo='x+y'
+            ))
+            
+            # Add all filtered spectra with improved visualization
+            colors = ['#1E88E5', '#FF5722', '#4CAF50', '#FFC107', '#9C27B0']
+            for i, result in enumerate(filtered_results):
+                color = colors[i % len(colors)]
                 fig_main.add_trace(go.Scatter(
-                    x=input_freq,
-                    y=input_spec,
+                    x=result['filtered_data']['freq'],
+                    y=result['filtered_data']['intensity'],
                     mode='lines',
-                    name='Original Spectrum',
-                    line=dict(color='white', width=2))
-                )
-                
-                # Add all filtered spectra
-                for result in filtered_results:
-                    fig_main.add_trace(go.Scatter(
-                        x=result['filtered_data']['freq'],
-                        y=result['filtered_data']['intensity'],
-                        mode='lines',
-                        name=f"Filtered: {result['name']}",
-                        line=dict(width=1.5))
-                    )
-                
-                fig_main.update_layout(
-                    title="Spectrum Filtering Results - All Filters",
-                    xaxis_title="Frequency (GHz)",
-                    yaxis_title="Intensity (K)",
-                    hovermode="x unified",
-                    height=600,
-                    plot_bgcolor='#0D0F14',
-                    paper_bgcolor='#0D0F14',
-                    font=dict(color='white'),
-                    legend=dict(
-                        orientation="h",
-                        yanchor="bottom",
-                        y=1.02,
-                        xanchor="right",
-                        x=1
-                    )
-                )
-                st.plotly_chart(fig_main, use_container_width=True)
+                    name=f"{result['name']} (Transmission: {result['transmission']:.2%})",
+                    line=dict(color=color, width=1.5),
+                    hoverinfo='x+y+name',
+                    visible='legendonly' if len(filtered_results) > 5 else True
+                ))
             
-            with subtab2:
-                # Show details for each filter in expandable sections
-                for result in filtered_results:
-                    with st.expander(f"🔍 {result['name']} (from {result['parent_dir']})", expanded=True):
-                        st.markdown(f"""
-                        <div class="filter-container">
-                            <div class="filter-header">{result['name']}</div>
-                            <div class="filter-subheader">Filter Profile vs Filtered Spectrum</div>
-                        </div>
-                        """, unsafe_allow_html=True)
-                        
-                        # Create two columns for the plots
-                        col1, col2 = st.columns(2)
-                        
-                        with col1:
-                            # Filter profile plot
-                            fig_filter = go.Figure()
-                            fig_filter.add_trace(go.Scatter(
-                                x=result['filtered_data']['freq'],
-                                y=result['filtered_data']['filter_profile'],
-                                mode='lines',
-                                name='Filter Profile',
-                                line=dict(color='#1E88E5', width=2))
-                            )
-                            fig_filter.update_layout(
-                                title="Filter Profile",
-                                height=400,
-                                plot_bgcolor='#0D0F14',
-                                paper_bgcolor='#0D0F14',
-                                showlegend=False,
-                                margin=dict(l=20, r=20, t=40, b=20),
-                                font=dict(color='white')
-                            )
-                            st.plotly_chart(fig_filter, use_container_width=True)
-                        
-                        with col2:
-                            # Original vs filtered comparison
-                            fig_compare = go.Figure()
-                            fig_compare.add_trace(go.Scatter(
-                                x=result['original_freq'],
-                                y=result['original_intensity'],
-                                mode='lines',
-                                name='Original',
-                                line=dict(color='white', width=1))
-                            )
-                            fig_compare.add_trace(go.Scatter(
-                                x=result['filtered_data']['freq'],
-                                y=result['filtered_data']['intensity'],
-                                mode='lines',
-                                name='Filtered',
-                                line=dict(color='#FF5722', width=2))
-                            )
-                            fig_compare.update_layout(
-                                title="Original vs Filtered",
-                                height=400,
-                                plot_bgcolor='#0D0F14',
-                                paper_bgcolor='#0D0F14',
-                                showlegend=False,
-                                margin=dict(l=20, r=20, t=40, b=20),
-                                font=dict(color='white')
-                            )
-                            st.plotly_chart(fig_compare, use_container_width=True)
-                        
-                        # Download button
-                        with open(result['output_path'], 'rb') as f:
-                            st.download_button(
-                                label=f"📥 Download {result['name']} filtered spectrum",
-                                data=f,
-                                file_name=os.path.basename(result['output_path']),
-                                mime='text/plain',
-                                key=f"download_{result['name']}",
-                                use_container_width=True
-                            )
+            fig_main.update_layout(
+                title="Spectrum Filtering Results - All Filters",
+                xaxis_title="Frequency (GHz)",
+                yaxis_title="Intensity (K)",
+                hovermode="x unified",
+                height=600,
+                plot_bgcolor='#0D0F14',
+                paper_bgcolor='#0D0F14',
+                font=dict(color='white'),
+                legend=dict(
+                    orientation="h",
+                    yanchor="bottom",
+                    y=1.02,
+                    xanchor="right",
+                    x=1
+                )
+            )
+            st.plotly_chart(fig_main, use_container_width=True)
+            
+            # Add spectrum statistics
+            with st.expander("📊 Spectrum Statistics", expanded=False):
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Frequency Range", f"{min(input_freq):.2f} - {max(input_freq):.2f} GHz")
+                with col2:
+                    st.metric("Max Intensity", f"{max(input_spec):.2e} K")
+                with col3:
+                    st.metric("Total Area", f"{np.trapz(input_spec, input_freq):.2e} K·GHz")
         
-        with main_tab2:
-            st.write("Other functions will be implemented here")
+        with tab2:
+            # Sort filters by transmission efficiency
+            filtered_results_sorted = sorted(filtered_results, key=lambda x: x['transmission'], reverse=True)
+            
+            # Show filter comparison table
+            st.markdown("### Filter Performance Comparison")
+            comparison_data = []
+            for result in filtered_results_sorted:
+                comparison_data.append({
+                    "Filter Name": result['name'],
+                    "Category": result['parent_dir'],
+                    "Transmission": f"{result['transmission']:.2%}",
+                    "Max Intensity": f"{max(result['filtered_data']['intensity']):.2e} K"
+                })
+            
+            st.table(comparison_data)
+            
+            # Show details for each filter
+            st.markdown("### Filter Details")
+            for result in filtered_results_sorted:
+                with st.expander(f"🔍 {result['name']} (Transmission: {result['transmission']:.2%})", expanded=False):
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        # Filter profile plot
+                        fig_filter = go.Figure()
+                        fig_filter.add_trace(go.Scatter(
+                            x=result['filtered_data']['freq'],
+                            y=result['filtered_data']['filter_profile'],
+                            mode='lines',
+                            name='Filter Profile',
+                            line=dict(color='#1E88E5', width=2))
+                        )
+                        fig_filter.update_layout(
+                            title="Filter Profile",
+                            height=400,
+                            plot_bgcolor='#0D0F14',
+                            paper_bgcolor='#0D0F14',
+                            showlegend=False,
+                            margin=dict(l=20, r=20, t=40, b=20),
+                            font=dict(color='white')
+                        )
+                        st.plotly_chart(fig_filter, use_container_width=True)
+                    
+                    with col2:
+                        # Original vs filtered comparison
+                        fig_compare = go.Figure()
+                        fig_compare.add_trace(go.Scatter(
+                            x=result['original_freq'],
+                            y=result['original_intensity'],
+                            mode='lines',
+                            name='Original',
+                            line=dict(color='white', width=1))
+                        )
+                        fig_compare.add_trace(go.Scatter(
+                            x=result['filtered_data']['freq'],
+                            y=result['filtered_data']['intensity'],
+                            mode='lines',
+                            name='Filtered',
+                            line=dict(color='#FF5722', width=2))
+                        )
+                        fig_compare.update_layout(
+                            title="Original vs Filtered",
+                            height=400,
+                            plot_bgcolor='#0D0F14',
+                            paper_bgcolor='#0D0F14',
+                            showlegend=False,
+                            margin=dict(l=20, r=20, t=40, b=20),
+                            font=dict(color='white')
+                        )
+                        st.plotly_chart(fig_compare, use_container_width=True)
+                    
+                    # Download button
+                    with open(result['output_path'], 'rb') as f:
+                        st.download_button(
+                            label=f"📥 Download {result['name']} filtered spectrum",
+                            data=f,
+                            file_name=os.path.basename(result['output_path']),
+                            mime='text/plain',
+                            key=f"download_{result['name']}",
+                            use_container_width=True
+                        )
     
     except Exception as e:
         st.markdown(f'<div class="error-box">❌ Processing error: {str(e)}</div>', unsafe_allow_html=True)
@@ -779,7 +641,7 @@ st.sidebar.markdown("""
 1. Upload your spectrum file
 2. The system will automatically apply all filters
 3. View results in the interactive tabs
-4. Download filtered spectra as needed
+4. Compare filter performance
 
 **Supported formats:**
 - Text files (.txt, .dat)
