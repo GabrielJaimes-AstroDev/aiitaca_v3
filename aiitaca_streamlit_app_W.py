@@ -463,15 +463,23 @@ with st.sidebar.expander("📁 Downloaded Resources", expanded=True):
         st.markdown("**Models Directory:**")
         st.code(f"./{st.session_state.MODEL_DIR}", language="bash")
         
-        with st.expander("📂 View All Model Files", expanded=False):
+        # Cambiado: Eliminado el expander anidado y reemplazado con un checkbox
+        show_models = st.checkbox("📂 Show Model Files", value=False)
+        if show_models:
+            st.markdown("<div class='file-explorer'>", unsafe_allow_html=True)
             display_file_explorer(st.session_state.downloaded_files['models'], "Model Files Structure")
+            st.markdown("</div>", unsafe_allow_html=True)
     
     if st.session_state.FILTER_DIR and os.path.exists(st.session_state.FILTER_DIR):
         st.markdown("**Filters Directory:**")
         st.code(f"./{st.session_state.FILTER_DIR}", language="bash")
         
-        with st.expander("📂 View All Filter Files", expanded=False):
+        # Cambiado: Eliminado el expander anidado y reemplazado con un checkbox
+        show_filters = st.checkbox("📂 Show Filter Files", value=False)
+        if show_filters:
+            st.markdown("<div class='file-explorer'>", unsafe_allow_html=True)
             display_file_explorer(st.session_state.downloaded_files['filters'], "Filter Files Structure")
+            st.markdown("</div>", unsafe_allow_html=True)
 
 # Button to retry download
 if st.sidebar.button("🔄 Retry Download Resources"):
