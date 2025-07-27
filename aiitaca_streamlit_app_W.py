@@ -92,7 +92,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # === HEADER WITH IMAGE AND DESCRIPTION ===
-st.image("NGC6523_BVO_2.jpg", use_container_width=True)
+st.image("NGC6523_BVO_2.jpg", use_column_width=True)
 
 col1, col2 = st.columns([1, 3])
 with col1:
@@ -205,7 +205,7 @@ if input_file is not None:
                 yaxis=dict(gridcolor='#3A3A3A')
             )
             
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_column_width=True)
 
     os.unlink(tmp_path)
 else:
