@@ -7,8 +7,8 @@ import gdown
 import time
 from scipy.interpolate import interp1d
 from astropy.io import fits
-import zipfile
 import shutil
+from glob import glob
 
 # Configuración de la página
 st.set_page_config(
@@ -77,6 +77,11 @@ st.markdown("""
         border-radius: 8px;
         margin-bottom: 15px;
     }
+    .download-btn {
+        background-color: #4CAF50 !important;
+        color: white !important;
+        border: none !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -93,30 +98,52 @@ with col2:
 
 st.markdown("""
 <div class="description-panel">
-A remarkable upsurge in the complexity of molecules identified in the interstellar medium (ISM)...
+A remarkable upsurge in the complexity of molecules identified in the interstellar medium (ISM) is currently occurring, 
+with over 80 new species discovered in the last three years. A number of them have been emphasized by prebiotic 
+experiments as vital molecular building blocks of life.
 </div>
 """, unsafe_allow_html=True)
 
 # === FUNCIONES DE DESCARGA MEJORADAS ===
-def download_folder_contents(url, output):
-    """Descarga todo el contenido de una carpeta de Google Drive"""
+def download_google_drive_folder(folder_url, output_dir):
+    """Descarga recursivamente todo el contenido de una carpeta de Google Drive"""
     try:
-        # Primero intentamos descargar como zip
-        zip_path = os.path.join(output, 'temp_folder.zip')
-        os.makedirs(output, exist_ok=True)
+        # Obtener el ID de la carpeta desde la URL
+        folder_id = folder_url.split('folders/')[-1].split('?')[0]
         
-        # Descargar usando gdown
-        gdown.download_folder(url, output=zip_path, quiet=True, use_cookies=False)
+        # Crear directorio de salida si no existe
+        os.makedirs(output_dir, exist_ok=True)
         
-        # Extraer si es un zip
-        if os.path.exists(zip_path):
-            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                zip_ref.extractall(output)
-            os.remove(zip_path)
+        # Configuración de la barra de progreso
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        status_text.text("Preparing download...")
+        
+        # Descargar usando gdown con barra de progreso
+        gdown.download_folder(
+            id=folder_id,
+            output=output_dir,
+            quiet=True,
+            use_cookies=False,
+            remaining_ok=True
+        )
+        
+        # Verificar contenido descargado
+        downloaded_files = []
+        for root, _, files in os.walk(output_dir):
+            for file in files:
+                downloaded_files.append(os.path.join(root, file))
+        
+        if not downloaded_files:
+            raise ValueError("No files were downloaded")
+        
         return True
     except Exception as e:
-        st.error(f"Error downloading folder contents: {str(e)}")
+        st.error(f"Error downloading folder: {str(e)}")
         return False
+    finally:
+        progress_bar.empty()
+        status_text.empty()
 
 def download_resources():
     """Descarga todos los recursos necesarios"""
@@ -130,33 +157,36 @@ def download_resources():
     shutil.rmtree(MODEL_DIR, ignore_errors=True)
     shutil.rmtree(FILTER_DIR, ignore_errors=True)
     
-    progress_text = st.empty()
-    progress_bar = st.progress(0)
+    # Descargar modelos
+    with st.spinner("Downloading models (this may take a few minutes)..."):
+        if not download_google_drive_folder(MODEL_FOLDER_URL, MODEL_DIR):
+            return None, None
     
-    # Descargar modelos (carpeta completa)
-    progress_text.text("📥 Downloading models...")
-    if not download_folder_contents(MODEL_FOLDER_URL, MODEL_DIR):
-        return None, None
-    progress_bar.progress(50)
-    
-    # Descargar filtros (archivos individuales)
-    progress_text.text("📥 Downloading filters...")
-    if not download_folder_contents(FILTER_FOLDER_URL, FILTER_DIR):
-        return None, None
-    progress_bar.progress(100)
+    # Descargar filtros
+    with st.spinner("Downloading filters..."):
+        if not download_google_drive_folder(FILTER_FOLDER_URL, FILTER_DIR):
+            return None, None
     
     # Verificar contenido descargado
-    model_files = [f for f in os.listdir(MODEL_DIR) if not f.startswith('.')]
-    filter_files = [f for f in os.listdir(FILTER_DIR) if f.endswith('.txt')]
+    model_files = []
+    for root, _, files in os.walk(MODEL_DIR):
+        for file in files:
+            if not file.startswith('.'):
+                model_files.append(os.path.join(root, file))
+    
+    filter_files = []
+    for root, _, files in os.walk(FILTER_DIR):
+        for file in files:
+            if file.endswith('.txt'):
+                filter_files.append(os.path.join(root, file))
     
     if not model_files or not filter_files:
-        st.error("No se encontraron archivos válidos en las descargas")
+        st.error("Download incomplete - missing files")
         return None, None
     
-    progress_text.text("✅ Download completed successfully!")
+    st.success("Resources downloaded successfully!")
     time.sleep(2)
-    progress_text.empty()
-    progress_bar.empty()
+    st.session_state.resources_downloaded = True
     
     return MODEL_DIR, FILTER_DIR
 
@@ -210,18 +240,33 @@ def apply_filter(spectrum_freq, spectrum_intensity, filter_path):
             'freq': freq_filter,
             'intensity': full_filtered,
             'filter_profile': intensity_filter,
-            'mask': mask
+            'mask': mask,
+            'filter_name': os.path.splitext(os.path.basename(filter_path))[0]
         }
     except Exception as e:
         st.error(f"Error applying filter: {str(e)}")
         return None
 
 # === INTERFAZ PRINCIPAL ===
-# Descargar recursos al iniciar
-MODEL_DIR, FILTER_DIR = download_resources()
+# Inicializar estado de la sesión
+if 'resources_downloaded' not in st.session_state:
+    st.session_state.resources_downloaded = False
+    st.session_state.MODEL_DIR = None
+    st.session_state.FILTER_DIR = None
 
-# Barra lateral para carga de archivos
+# Descargar recursos al iniciar
+if not st.session_state.resources_downloaded:
+    st.session_state.MODEL_DIR, st.session_state.FILTER_DIR = download_resources()
+
+# Barra lateral para configuración
 st.sidebar.title("Configuration")
+
+# Botón para reintentar descarga
+if st.sidebar.button("↻ Retry Download Resources"):
+    st.session_state.MODEL_DIR, st.session_state.FILTER_DIR = download_resources()
+    st.experimental_rerun()
+
+# Selector de archivo de entrada
 input_file = st.sidebar.file_uploader(
     "Input Spectrum File",
     type=['.txt', '.dat', '.fits', '.spec'],
@@ -229,7 +274,7 @@ input_file = st.sidebar.file_uploader(
 )
 
 # Procesamiento principal
-if input_file is not None and MODEL_DIR and FILTER_DIR:
+if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FILTER_DIR:
     with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
         tmp_file.write(input_file.getvalue())
         tmp_path = tmp_file.name
@@ -238,35 +283,43 @@ if input_file is not None and MODEL_DIR and FILTER_DIR:
         # Leer espectro de entrada
         input_freq, input_spec = read_spectrum(tmp_path)
         if input_freq is None:
-            raise ValueError("Invalid spectrum file")
+            raise ValueError("Invalid spectrum file format")
+        
+        # Obtener todos los archivos de filtros
+        filter_files = []
+        for root, _, files in os.walk(st.session_state.FILTER_DIR):
+            for file in files:
+                if file.endswith('.txt'):
+                    filter_files.append(os.path.join(root, file))
+        
+        if not filter_files:
+            raise ValueError("No filter files found")
         
         # Procesar con todos los filtros
-        filter_files = [f for f in os.listdir(FILTER_DIR) if f.endswith('.txt')]
         filtered_results = []
+        with st.spinner("Applying filters..."):
+            for filter_file in filter_files:
+                result = apply_filter(input_freq, input_spec, filter_file)
+                if result is not None:
+                    # Guardar resultado filtrado temporalmente
+                    output_filename = f"filtered_{result['filter_name']}.txt"
+                    output_path = os.path.join(tempfile.gettempdir(), output_filename)
+                    np.savetxt(
+                        output_path,
+                        np.column_stack((result['freq'], result['intensity'])),
+                        header=f"Filtered spectrum using {result['filter_name']}",
+                        delimiter='\t'
+                    )
+                    filtered_results.append({
+                        'name': result['filter_name'],
+                        'original_freq': input_freq,
+                        'original_intensity': input_spec,
+                        'filtered_data': result,
+                        'output_path': output_path
+                    })
         
-        for filter_file in filter_files:
-            filter_name = os.path.splitext(filter_file)[0]
-            filter_path = os.path.join(FILTER_DIR, filter_file)
-            
-            result = apply_filter(input_freq, input_spec, filter_path)
-            if result is not None:
-                # Guardar resultado filtrado
-                output_filename = f"filtered_{filter_name}.txt"
-                output_path = os.path.join(tempfile.gettempdir(), output_filename)
-                np.savetxt(
-                    output_path,
-                    np.column_stack((result['freq'], result['intensity'])),
-                    header=f"Filtered spectrum using {filter_name}",
-                    delimiter='\t'
-                )
-                
-                filtered_results.append({
-                    'name': filter_name,
-                    'original_freq': input_freq,
-                    'original_intensity': input_spec,
-                    'filtered_data': result,
-                    'output_path': output_path
-                })
+        if not filtered_results:
+            raise ValueError("No filters were successfully applied")
         
         # Mostrar resultados en pestañas
         tab1, tab2 = st.tabs(["Interactive View", "Filter Details"])
@@ -363,15 +416,24 @@ if input_file is not None and MODEL_DIR and FILTER_DIR:
                             label=f"Download {result['name']} filtered spectrum",
                             data=f,
                             file_name=os.path.basename(result['output_path']),
-                            mime='text/plain'
+                            mime='text/plain',
+                            key=f"download_{result['name']}",
+                            use_container_width=True
                         )
     
     except Exception as e:
         st.error(f"Processing error: {str(e)}")
     finally:
         os.unlink(tmp_path)
-elif not MODEL_DIR or not FILTER_DIR:
-    st.error("Required resources could not be downloaded. Please try again later.")
+
+elif not st.session_state.MODEL_DIR or not st.session_state.FILTER_DIR:
+    st.error("""
+    Required resources could not be downloaded. 
+    Possible solutions:
+    1. Click the 'Retry Download Resources' button in the sidebar
+    2. Check your internet connection
+    3. Try again later
+    """)
 else:
     st.info("Please upload a spectrum file to begin analysis")
 
@@ -382,4 +444,6 @@ st.sidebar.markdown("""
 2. The system will automatically apply all filters
 3. View results in the interactive tabs
 4. Download filtered spectra as needed
+
+**Note:** First-time setup may take a few minutes to download all required resources.
 """)
