@@ -11,7 +11,7 @@ import shutil
 from glob import glob
 
 # =============================================
-# PAGE CONFIGURATION - DEBE SER PRIMERO
+# PAGE CONFIGURATION - DEBE SER PRIMERO Y ÚNICO
 # =============================================
 st.set_page_config(
     layout="wide", 
@@ -39,6 +39,7 @@ def load_external_file(filename):
     except Exception as e:
         st.error(f"Error loading file {filename}: {str(e)}")
         return ""
+
 def load_urls_config(filename):
     """Carga las URLs de configuración con validación robusta"""
     urls = {}
@@ -97,24 +98,6 @@ if not MODEL_FOLDER_URL or not FILTER_FOLDER_URL:
     FILTER_FOLDER_URL=su_url_aqui
     """)
     st.stop()  # Detiene la ejecución completamente
-
-# =============================================
-# INITIALIZE SESSION STATE
-# =============================================
-if not hasattr(st.session_state, 'resources_downloaded'):
-    st.session_state.resources_downloaded = False
-    st.session_state.MODEL_DIR = None
-    st.session_state.FILTER_DIR = None
-    st.session_state.downloaded_files = {'models': [], 'filters': []}
-
-# =============================================
-# PAGE CONFIGURATION
-# =============================================
-st.set_page_config(
-    layout="wide", 
-    page_title="AI-ITACA | Spectrum Analyzer",
-    page_icon="🔭" 
-)
 
 # =============================================
 # CSS STYLES
