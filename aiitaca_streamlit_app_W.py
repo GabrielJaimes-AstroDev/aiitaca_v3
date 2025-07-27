@@ -209,8 +209,8 @@ def download_google_drive_folder(folder_url, output_dir):
 
 def download_resources():
     """Descarga todos los recursos necesarios"""
-    MODEL_FOLDER_URL = "https://drive.google.com/drive/folders/1yMH4Ls8f8aCrCS0BTRH57HePUmXWh1AX"
-    FILTER_FOLDER_URL = "https://drive.google.com/drive/folders/1s7NaWIyt5mCoiSdBanwPNCekIJ2K65_i"
+    MODEL_FOLDER_URL = "https://drive.google.com/drive/folders/1drIyt-xaeWxmaMLxyuLJa2i7GtPn-hVe?usp=sharing"
+    FILTER_FOLDER_URL = "https://drive.google.com/drive/folders/1AwGL2yh5L0cf8wUzIe9QA8kij9ihYRCQ?usp=sharing"
     
     MODEL_DIR = "downloaded_models"
     FILTER_DIR = "downloaded_filters"
