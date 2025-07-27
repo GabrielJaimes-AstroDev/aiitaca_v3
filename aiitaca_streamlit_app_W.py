@@ -11,7 +11,16 @@ import shutil
 from glob import glob
 
 # =============================================
-# CONFIGURACIÓN DE LA PÁGINA
+# INITIALIZE SESSION STATE
+# =============================================
+if not hasattr(st.session_state, 'resources_downloaded'):
+    st.session_state.resources_downloaded = False
+    st.session_state.MODEL_DIR = None
+    st.session_state.FILTER_DIR = None
+    st.session_state.downloaded_files = {'models': [], 'filters': []}
+
+# =============================================
+# PAGE CONFIGURATION
 # =============================================
 st.set_page_config(
     layout="wide", 
@@ -20,17 +29,17 @@ st.set_page_config(
 )
 
 # =============================================
-# ESTILOS CSS
+# CSS STYLES
 # =============================================
 st.markdown("""
 <style>
-    /* Estilos generales */
+    /* General styles */
     .stApp, .main .block-container, body {
         background-color: #15181c !important;
         font-family: 'Arial', sans-serif;
     }
     
-    /* Texto y controles */
+    /* Text and controls */
     body, .stMarkdown, .stText, 
     .stSlider [data-testid="stMarkdownContainer"],
     .stSelectbox, .stNumberInput, .stTextInput,
@@ -38,7 +47,7 @@ st.markdown("""
         color: #FFFFFF !important;
     }
     
-    /* Barra lateral */
+    /* Sidebar */
     [data-testid="stSidebar"] {
         background-color: #FFFFFF !important;
         border-right: 1px solid #e0e0e0;
@@ -47,7 +56,7 @@ st.markdown("""
         color: #000000 !important;
     }
     
-    /* Botones */
+    /* Buttons */
     .stButton>button {
         border: 2px solid #1E88E5 !important;
         color: white !important;
@@ -61,13 +70,13 @@ st.markdown("""
         border-color: #0D47A1 !important;
     }
     
-    /* Títulos */
+    /* Titles */
     h1, h2, h3, h4, h5, h6 {
         color: #1E88E5 !important;
         text-shadow: 1px 1px 2px rgba(0,0,0,0.3);
     }
     
-    /* Paneles */
+    /* Panels */
     .description-panel {
         background-color: white !important;
         color: black !important;
@@ -78,13 +87,13 @@ st.markdown("""
         box-shadow: 0 2px 10px rgba(0,0,0,0.1);
     }
     
-    /* Gráficos */
+    /* Graphs */
     .plotly-graph-div {
         background-color: #0D0F14 !important;
         border-radius: 8px;
     }
     
-    /* Lista de archivos */
+    /* File list */
     .file-list {
         background-color: #2d2d2d !important;
         padding: 10px;
@@ -95,7 +104,7 @@ st.markdown("""
         overflow-x: auto;
     }
     
-    /* Mensajes de estado */
+    /* Status messages */
     .success-box {
         background-color: #4CAF50 !important;
         color: white !important;
@@ -118,7 +127,7 @@ st.markdown("""
         margin-bottom: 15px;
     }
     
-    /* Pestañas */
+    /* Tabs */
     .stTabs [aria-selected="true"] {
         background-color: #1E88E5 !important;
         color: white !important;
@@ -151,17 +160,15 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # =============================================
-# FUNCIONES AUXILIARES
+# HELPER FUNCTIONS
 # =============================================
-
-# Añade esta función en la sección de FUNCIONES AUXILIARES (al principio del código)
 def list_downloaded_files(directory):
-    """Lista recursivamente todos los archivos descargados con información detallada"""
+    """Recursively list all downloaded files with detailed information"""
     file_list = []
     try:
         for root, _, files in os.walk(directory):
             for file in files:
-                if not file.startswith('.'):  # Ignorar archivos ocultos
+                if not file.startswith('.'):  # Ignore hidden files
                     full_path = os.path.join(root, file)
                     rel_path = os.path.relpath(full_path, directory)
                     try:
@@ -183,19 +190,8 @@ def list_downloaded_files(directory):
         st.error(f"Error listing files in {directory}: {str(e)}")
     return file_list
 
-# Y modifica la parte donde se llama a esta función (alrededor de la línea 366):
-if not st.session_state.resources_downloaded:
-    st.session_state.MODEL_DIR, st.session_state.FILTER_DIR = download_resources()
-    if st.session_state.MODEL_DIR and st.session_state.FILTER_DIR:
-        try:
-            st.session_state.downloaded_files['models'] = list_downloaded_files(st.session_state.MODEL_DIR)
-            st.session_state.downloaded_files['filters'] = list_downloaded_files(st.session_state.FILTER_DIR)
-            st.session_state.resources_downloaded = True
-        except Exception as e:
-            st.error(f"Error processing downloaded files: {str(e)}")
-            st.session_state.resources_downloaded = False
 def get_file_size(path):
-    """Obtiene el tamaño del archivo en formato legible"""
+    """Get file size in human-readable format"""
     size = os.path.getsize(path)
     for unit in ['B', 'KB', 'MB', 'GB']:
         if size < 1024.0:
@@ -204,7 +200,7 @@ def get_file_size(path):
     return f"{size:.1f} TB"
 
 def display_directory_tree(directory, max_depth=3, current_depth=0):
-    """Muestra la estructura de directorios como un árbol"""
+    """Display directory structure as a tree"""
     if not os.path.exists(directory):
         return f"<div class='error-box'>Directory not found: {directory}</div>"
     
@@ -213,7 +209,7 @@ def display_directory_tree(directory, max_depth=3, current_depth=0):
     try:
         items = sorted(os.listdir(directory))
         for item in items:
-            if item.startswith('.'):  # Ignorar archivos ocultos
+            if item.startswith('.'):  # Ignore hidden files
                 continue
                 
             full_path = os.path.join(directory, item)
@@ -231,7 +227,7 @@ def display_directory_tree(directory, max_depth=3, current_depth=0):
     return tree_html
 
 def download_google_drive_folder(folder_url, output_dir):
-    """Descarga recursivamente todo el contenido de una carpeta de Google Drive"""
+    """Recursively download all content from a Google Drive folder"""
     try:
         folder_id = folder_url.split('folders/')[-1].split('?')[0]
         os.makedirs(output_dir, exist_ok=True)
@@ -249,7 +245,7 @@ def download_google_drive_folder(folder_url, output_dir):
         return False
 
 def download_resources():
-    """Descarga todos los recursos necesarios"""
+    """Download all required resources"""
     MODEL_FOLDER_URL = "https://drive.google.com/drive/folders/1drIyt-xaeWxmaMLxyuLJa2i7GtPn-hVe?usp=sharing"
     FILTER_FOLDER_URL = "https://drive.google.com/drive/folders/1AwGL2yh5L0cf8wUzIe9QA8kij9ihYRCQ?usp=sharing"
     
@@ -259,12 +255,12 @@ def download_resources():
     shutil.rmtree(MODEL_DIR, ignore_errors=True)
     shutil.rmtree(FILTER_DIR, ignore_errors=True)
     
-    # Descargar modelos
+    # Download models
     with st.spinner("🔽 Downloading models (this may take a few minutes)..."):
         if not download_google_drive_folder(MODEL_FOLDER_URL, MODEL_DIR):
             return None, None
     
-    # Descargar filtros
+    # Download filters
     with st.spinner("🔽 Downloading filters..."):
         if not download_google_drive_folder(FILTER_FOLDER_URL, FILTER_DIR):
             return None, None
@@ -272,24 +268,24 @@ def download_resources():
     return MODEL_DIR, FILTER_DIR
 
 def robust_read_file(file_path):
-    """Lee archivos de espectro o filtro con manejo robusto de formatos"""
+    """Read spectrum or filter files with robust format handling"""
     try:
-        # Archivos FITS
+        # FITS files
         if file_path.endswith('.fits'):
             with fits.open(file_path) as hdul:
                 return hdul[1].data['freq'], hdul[1].data['intensity']
         
-        # Archivos de texto
+        # Text files
         with open(file_path, 'rb') as f:
             content = f.read()
         
-        # Probar diferentes codificaciones
+        # Try different encodings
         for encoding in ['utf-8', 'latin-1', 'ascii']:
             try:
                 decoded = content.decode(encoding)
                 lines = decoded.splitlines()
                 
-                # Filtrar líneas de comentario
+                # Filter comment lines
                 data_lines = []
                 for line in lines:
                     stripped = line.strip()
@@ -300,7 +296,7 @@ def robust_read_file(file_path):
                 if not data_lines:
                     continue
                 
-                # Leer datos numéricos
+                # Read numerical data
                 data = np.genfromtxt(data_lines)
                 if data.ndim == 2 and data.shape[1] >= 2:
                     return data[:, 0], data[:, 1]
@@ -308,38 +304,38 @@ def robust_read_file(file_path):
             except (UnicodeDecodeError, ValueError):
                 continue
         
-        raise ValueError("No se pudo leer el archivo con ninguna codificación estándar")
+        raise ValueError("Could not read the file with any standard encoding")
     
     except Exception as e:
         st.error(f"Error reading file {os.path.basename(file_path)}: {str(e)}")
         return None, None
 
 def apply_spectral_filter(spectrum_freq, spectrum_intensity, filter_path):
-    """Aplica un filtro espectral con manejo robusto"""
+    """Apply spectral filter with robust handling"""
     try:
-        # Leer datos del filtro
+        # Read filter data
         filter_freq, filter_intensity = robust_read_file(filter_path)
         if filter_freq is None:
             return None
         
-        # Convertir a GHz si es necesario
+        # Convert to GHz if needed
         if np.mean(filter_freq) > 1e6:
             filter_freq = filter_freq / 1e9
         
-        # Normalizar el filtro
+        # Normalize filter
         max_intensity = np.max(filter_intensity)
         if max_intensity > 0:
             filter_intensity = filter_intensity / max_intensity
         
-        # Crear máscara para regiones significativas
+        # Create mask for significant regions
         mask = filter_intensity > 0.01
         
-        # Validar espectro de entrada
+        # Validate input spectrum
         valid_points = (~np.isnan(spectrum_intensity)) & (~np.isinf(spectrum_intensity))
         if np.sum(valid_points) < 2:
-            raise ValueError("El espectro no tiene suficientes puntos válidos")
+            raise ValueError("Spectrum doesn't have enough valid points")
         
-        # Interpolación
+        # Interpolation
         interp_func = interp1d(
             spectrum_freq[valid_points],
             spectrum_intensity[valid_points],
@@ -348,11 +344,11 @@ def apply_spectral_filter(spectrum_freq, spectrum_intensity, filter_path):
             fill_value=0.0
         )
         
-        # Aplicar filtro
+        # Apply filter
         filtered_data = interp_func(filter_freq) * filter_intensity
         filtered_data = np.clip(filtered_data, 0, None)
         
-        # Versión completa con ceros
+        # Full version with zeros
         full_filtered = np.zeros_like(filter_freq)
         full_filtered[mask] = filtered_data[mask]
         
@@ -369,7 +365,7 @@ def apply_spectral_filter(spectrum_freq, spectrum_intensity, filter_path):
         return None
 
 # =============================================
-# ENCABEZADO
+# HEADER
 # =============================================
 st.image("NGC6523_BVO_2.jpg", use_column_width=True)
 
@@ -391,29 +387,26 @@ it prompts the query as to whether the rich interstellar chemical reservoir coul
 """, unsafe_allow_html=True)
 
 # =============================================
-# INTERFAZ PRINCIPAL
+# MAIN INTERFACE
 # =============================================
-# Inicializar estado de la sesión
-if 'resources_downloaded' not in st.session_state:
-    st.session_state.resources_downloaded = False
-    st.session_state.MODEL_DIR = None
-    st.session_state.FILTER_DIR = None
-    st.session_state.downloaded_files = {'models': [], 'filters': []}
-
-# Descargar recursos al iniciar
+# Download resources on startup
 if not st.session_state.resources_downloaded:
     st.session_state.MODEL_DIR, st.session_state.FILTER_DIR = download_resources()
     if st.session_state.MODEL_DIR and st.session_state.FILTER_DIR:
-        st.session_state.downloaded_files['models'] = list_downloaded_files(st.session_state.MODEL_DIR)
-        st.session_state.downloaded_files['filters'] = list_downloaded_files(st.session_state.FILTER_DIR)
-        st.session_state.resources_downloaded = True
+        try:
+            st.session_state.downloaded_files['models'] = list_downloaded_files(st.session_state.MODEL_DIR)
+            st.session_state.downloaded_files['filters'] = list_downloaded_files(st.session_state.FILTER_DIR)
+            st.session_state.resources_downloaded = True
+        except Exception as e:
+            st.error(f"Error processing downloaded files: {str(e)}")
+            st.session_state.resources_downloaded = False
 
 # =============================================
-# BARRA LATERAL
+# SIDEBAR
 # =============================================
 st.sidebar.title("Configuration")
 
-# Mostrar archivos descargados
+# Show downloaded files
 with st.sidebar.expander("📁 Downloaded Resources", expanded=True):
     st.markdown("**Models Directory:**")
     st.code(f"./{st.session_state.MODEL_DIR or 'Not downloaded'}", language="bash")
@@ -429,7 +422,7 @@ with st.sidebar.expander("📁 Downloaded Resources", expanded=True):
         st.markdown("**Directory Tree View:**")
         st.markdown(display_directory_tree(st.session_state.FILTER_DIR, max_depth=2), unsafe_allow_html=True)
 
-# Botón para reintentar descarga
+# Button to retry download
 if st.sidebar.button("🔄 Retry Download Resources"):
     st.session_state.MODEL_DIR, st.session_state.FILTER_DIR = download_resources()
     if st.session_state.MODEL_DIR and st.session_state.FILTER_DIR:
@@ -438,7 +431,7 @@ if st.sidebar.button("🔄 Retry Download Resources"):
         st.session_state.resources_downloaded = True
     st.experimental_rerun()
 
-# Selector de archivo de entrada
+# File selector
 input_file = st.sidebar.file_uploader(
     "Input Spectrum File",
     type=['.txt', '.dat', '.fits', '.spec'],
@@ -446,7 +439,7 @@ input_file = st.sidebar.file_uploader(
 )
 
 # =============================================
-# PROCESAMIENTO PRINCIPAL
+# MAIN PROCESSING
 # =============================================
 if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FILTER_DIR:
     with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
@@ -454,12 +447,12 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
         tmp_path = tmp_file.name
     
     try:
-        # Leer espectro de entrada
+        # Read input spectrum
         input_freq, input_spec = robust_read_file(tmp_path)
         if input_freq is None:
             raise ValueError("Could not read the spectrum file")
         
-        # Obtener todos los archivos de filtros
+        # Get all filter files
         filter_files = []
         for root, _, files in os.walk(st.session_state.FILTER_DIR):
             for file in files:
@@ -469,7 +462,7 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
         if not filter_files:
             raise ValueError("No filter files found in the filters directory")
         
-        # Procesar con todos los filtros
+        # Process with all filters
         filtered_results = []
         failed_filters = []
         
@@ -484,7 +477,7 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
                 
                 result = apply_spectral_filter(input_freq, input_spec, filter_file)
                 if result is not None:
-                    # Guardar resultado filtrado temporalmente
+                    # Save filtered result temporarily
                     output_filename = f"filtered_{result['filter_name']}.txt"
                     output_path = os.path.join(tempfile.gettempdir(), output_filename)
                     
@@ -511,7 +504,7 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
             progress_bar.empty()
             status_text.empty()
         
-        # Mostrar resultados
+        # Show results
         if not filtered_results:
             raise ValueError(f"No filters were successfully applied. {len(failed_filters)} filters failed.")
         
@@ -520,14 +513,14 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
         if failed_filters:
             st.markdown(f'<div class="warning-box">⚠ Failed to apply {len(failed_filters)} filters: {", ".join(failed_filters)}</div>', unsafe_allow_html=True)
         
-        # Mostrar en pestañas
+        # Show in tabs
         tab1, tab2 = st.tabs(["Interactive Spectrum", "Filter Details"])
         
         with tab1:
-            # Gráfico interactivo principal
+            # Main interactive graph
             fig_main = go.Figure()
             
-            # Espectro original
+            # Original spectrum
             fig_main.add_trace(go.Scatter(
                 x=input_freq,
                 y=input_spec,
@@ -536,7 +529,7 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
                 line=dict(color='white', width=2))
             )
             
-            # Añadir todos los espectros filtrados
+            # Add all filtered spectra
             for result in filtered_results:
                 fig_main.add_trace(go.Scatter(
                     x=result['filtered_data']['freq'],
@@ -566,13 +559,13 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
             st.plotly_chart(fig_main, use_container_width=True)
         
         with tab2:
-            # Detalles por cada filtro
+            # Details for each filter
             for result in filtered_results:
                 with st.expander(f"Filter: {result['name']}", expanded=True):
                     col1, col2 = st.columns(2)
                     
                     with col1:
-                        # Perfil del filtro
+                        # Filter profile
                         fig_filter = go.Figure()
                         fig_filter.add_trace(go.Scatter(
                             x=result['filtered_data']['freq'],
@@ -591,7 +584,7 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
                         st.plotly_chart(fig_filter, use_container_width=True)
                     
                     with col2:
-                        # Comparación original vs filtrado
+                        # Original vs filtered comparison
                         fig_compare = go.Figure()
                         fig_compare.add_trace(go.Scatter(
                             x=result['original_freq'],
@@ -616,7 +609,7 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
                         )
                         st.plotly_chart(fig_compare, use_container_width=True)
                     
-                    # Botón de descarga
+                    # Download button
                     with open(result['output_path'], 'rb') as f:
                         st.download_button(
                             label=f"Download {result['name']} filtered spectrum",
@@ -648,7 +641,7 @@ else:
     st.info("ℹ️ Please upload a spectrum file to begin analysis")
 
 # =============================================
-# INSTRUCCIONES
+# INSTRUCTIONS
 # =============================================
 st.sidebar.markdown("""
 **Instructions:**
