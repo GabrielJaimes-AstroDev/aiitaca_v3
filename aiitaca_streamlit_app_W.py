@@ -153,6 +153,47 @@ st.markdown("""
 # =============================================
 # FUNCIONES AUXILIARES
 # =============================================
+
+# Añade esta función en la sección de FUNCIONES AUXILIARES (al principio del código)
+def list_downloaded_files(directory):
+    """Lista recursivamente todos los archivos descargados con información detallada"""
+    file_list = []
+    try:
+        for root, _, files in os.walk(directory):
+            for file in files:
+                if not file.startswith('.'):  # Ignorar archivos ocultos
+                    full_path = os.path.join(root, file)
+                    rel_path = os.path.relpath(full_path, directory)
+                    try:
+                        size = get_file_size(full_path)
+                        file_list.append({
+                            'path': rel_path,
+                            'size': size,
+                            'full_path': full_path,
+                            'is_file': True
+                        })
+                    except Exception as e:
+                        file_list.append({
+                            'path': rel_path,
+                            'size': 'Error',
+                            'full_path': full_path,
+                            'is_file': True
+                        })
+    except Exception as e:
+        st.error(f"Error listing files in {directory}: {str(e)}")
+    return file_list
+
+# Y modifica la parte donde se llama a esta función (alrededor de la línea 366):
+if not st.session_state.resources_downloaded:
+    st.session_state.MODEL_DIR, st.session_state.FILTER_DIR = download_resources()
+    if st.session_state.MODEL_DIR and st.session_state.FILTER_DIR:
+        try:
+            st.session_state.downloaded_files['models'] = list_downloaded_files(st.session_state.MODEL_DIR)
+            st.session_state.downloaded_files['filters'] = list_downloaded_files(st.session_state.FILTER_DIR)
+            st.session_state.resources_downloaded = True
+        except Exception as e:
+            st.error(f"Error processing downloaded files: {str(e)}")
+            st.session_state.resources_downloaded = False
 def get_file_size(path):
     """Obtiene el tamaño del archivo en formato legible"""
     size = os.path.getsize(path)
