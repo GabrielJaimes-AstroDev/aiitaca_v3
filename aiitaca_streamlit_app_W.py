@@ -381,7 +381,7 @@ input_file = st.sidebar.file_uploader(
 )
 
 # =============================================
-# IMPROVED FILTER PROCESSING AND VISUALIZATION
+# FILTER PROCESSING AND VISUALIZATION
 # =============================================
 if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FILTER_DIR:
     with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
@@ -441,18 +441,12 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
                         comments=''
                     )
                     
-                    # Calculate additional metrics
-                    original_area = np.trapz(input_spec, input_freq)
-                    filtered_area = np.trapz(result['intensity'], result['freq'])
-                    transmission = filtered_area / original_area if original_area > 0 else 0
-                    
                     filtered_results.append({
                         'name': result['filter_name'],
                         'original_freq': input_freq,
                         'original_intensity': input_spec,
                         'filtered_data': result,
                         'output_path': output_path,
-                        'transmission': transmission,
                         'parent_dir': result['parent_dir']
                     })
                 else:
@@ -471,7 +465,7 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
             st.markdown(f'<div class="warning-box">⚠ Failed to apply {len(failed_filters)} filters: {", ".join(failed_filters)}</div>', unsafe_allow_html=True)
         
         # Create tabs for visualization
-        tab1, tab2 = st.tabs(["Interactive Spectrum Explorer", "Filter Comparison"])
+        tab1, tab2 = st.tabs(["Interactive Spectrum Explorer", "Filter Details"])
         
         with tab1:
             # Main interactive graph with all filters
@@ -487,7 +481,7 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
                 hoverinfo='x+y'
             ))
             
-            # Add all filtered spectra with improved visualization
+            # Add all filtered spectra
             colors = ['#1E88E5', '#FF5722', '#4CAF50', '#FFC107', '#9C27B0']
             for i, result in enumerate(filtered_results):
                 color = colors[i % len(colors)]
@@ -495,10 +489,9 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
                     x=result['filtered_data']['freq'],
                     y=result['filtered_data']['intensity'],
                     mode='lines',
-                    name=f"{result['name']} (Transmission: {result['transmission']:.2%})",
+                    name=f"Filtered: {result['name']}",
                     line=dict(color=color, width=1.5),
-                    hoverinfo='x+y+name',
-                    visible='legendonly' if len(filtered_results) > 5 else True
+                    hoverinfo='x+y+name'
                 ))
             
             fig_main.update_layout(
@@ -519,100 +512,73 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
                 )
             )
             st.plotly_chart(fig_main, use_container_width=True)
-            
-            # Add spectrum statistics
-            with st.expander("📊 Spectrum Statistics", expanded=False):
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("Frequency Range", f"{min(input_freq):.2f} - {max(input_freq):.2f} GHz")
-                with col2:
-                    st.metric("Max Intensity", f"{max(input_spec):.2e} K")
-                with col3:
-                    st.metric("Total Area", f"{np.trapz(input_spec, input_freq):.2e} K·GHz")
         
-        # En la sección donde se crean los botones de descarga (dentro del bucle for que procesa los filtros):
-with tab2:
-    # Sort filters by transmission efficiency
-    filtered_results_sorted = sorted(filtered_results, key=lambda x: x['transmission'], reverse=True)
-    
-    # Show filter comparison table
-    st.markdown("### Filter Performance Comparison")
-    comparison_data = []
-    for i, result in enumerate(filtered_results_sorted):  # Añadimos enumerate para obtener índice único
-        comparison_data.append({
-            "Filter Name": result['name'],
-            "Category": result['parent_dir'],
-            "Transmission": f"{result['transmission']:.2%}",
-            "Max Intensity": f"{max(result['filtered_data']['intensity']):.2e} K"
-        })
-    
-    st.table(comparison_data)
-    
-    # Show details for each filter
-    st.markdown("### Filter Details")
-    for i, result in enumerate(filtered_results_sorted):  # Añadimos enumerate aquí también
-        with st.expander(f"🔍 {result['name']} (Transmission: {result['transmission']:.2%})", expanded=False):
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                # Filter profile plot
-                fig_filter = go.Figure()
-                fig_filter.add_trace(go.Scatter(
-                    x=result['filtered_data']['freq'],
-                    y=result['filtered_data']['filter_profile'],
-                    mode='lines',
-                    name='Filter Profile',
-                    line=dict(color='#1E88E5', width=2))
-                )
-                fig_filter.update_layout(
-                    title="Filter Profile",
-                    height=400,
-                    plot_bgcolor='#0D0F14',
-                    paper_bgcolor='#0D0F14',
-                    showlegend=False,
-                    margin=dict(l=20, r=20, t=40, b=20),
-                    font=dict(color='white')
-                )
-                st.plotly_chart(fig_filter, use_container_width=True)
-            
-            with col2:
-                # Original vs filtered comparison
-                fig_compare = go.Figure()
-                fig_compare.add_trace(go.Scatter(
-                    x=result['original_freq'],
-                    y=result['original_intensity'],
-                    mode='lines',
-                    name='Original',
-                    line=dict(color='white', width=1))
-                )
-                fig_compare.add_trace(go.Scatter(
-                    x=result['filtered_data']['freq'],
-                    y=result['filtered_data']['intensity'],
-                    mode='lines',
-                    name='Filtered',
-                    line=dict(color='#FF5722', width=2))
-                )
-                fig_compare.update_layout(
-                    title="Original vs Filtered",
-                    height=400,
-                    plot_bgcolor='#0D0F14',
-                    paper_bgcolor='#0D0F14',
-                    showlegend=False,
-                    margin=dict(l=20, r=20, t=40, b=20),
-                    font=dict(color='white')
-                )
-                st.plotly_chart(fig_compare, use_container_width=True)
-            
-            # Download button with unique key using the index
-            with open(result['output_path'], 'rb') as f:
-                st.download_button(
-                    label=f"📥 Download {result['name']} filtered spectrum",
-                    data=f,
-                    file_name=os.path.basename(result['output_path']),
-                    mime='text/plain',
-                    key=f"download_{result['name']}_{i}",  # Añadimos el índice para hacer la clave única
-                    use_container_width=True
-                )
+        with tab2:
+            # Show details for each filter
+            st.markdown("### Filter Details")
+            for i, result in enumerate(filtered_results):
+                with st.expander(f"🔍 {result['name']} (from {result['parent_dir']})", expanded=False):
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        # Filter profile plot
+                        fig_filter = go.Figure()
+                        fig_filter.add_trace(go.Scatter(
+                            x=result['filtered_data']['freq'],
+                            y=result['filtered_data']['filter_profile'],
+                            mode='lines',
+                            name='Filter Profile',
+                            line=dict(color='#1E88E5', width=2))
+                        )
+                        fig_filter.update_layout(
+                            title="Filter Profile",
+                            height=400,
+                            plot_bgcolor='#0D0F14',
+                            paper_bgcolor='#0D0F14',
+                            showlegend=False,
+                            margin=dict(l=20, r=20, t=40, b=20),
+                            font=dict(color='white')
+                        )
+                        st.plotly_chart(fig_filter, use_container_width=True)
+                    
+                    with col2:
+                        # Original vs filtered comparison
+                        fig_compare = go.Figure()
+                        fig_compare.add_trace(go.Scatter(
+                            x=result['original_freq'],
+                            y=result['original_intensity'],
+                            mode='lines',
+                            name='Original',
+                            line=dict(color='white', width=1))
+                        )
+                        fig_compare.add_trace(go.Scatter(
+                            x=result['filtered_data']['freq'],
+                            y=result['filtered_data']['intensity'],
+                            mode='lines',
+                            name='Filtered',
+                            line=dict(color='#FF5722', width=2))
+                        )
+                        fig_compare.update_layout(
+                            title="Original vs Filtered",
+                            height=400,
+                            plot_bgcolor='#0D0F14',
+                            paper_bgcolor='#0D0F14',
+                            showlegend=False,
+                            margin=dict(l=20, r=20, t=40, b=20),
+                            font=dict(color='white')
+                        )
+                        st.plotly_chart(fig_compare, use_container_width=True)
+                    
+                    # Download button with unique key
+                    with open(result['output_path'], 'rb') as f:
+                        st.download_button(
+                            label=f"📥 Download {result['name']} filtered spectrum",
+                            data=f,
+                            file_name=os.path.basename(result['output_path']),
+                            mime='text/plain',
+                            key=f"download_{result['name']}_{i}",  # Unique key with index
+                            use_container_width=True
+                        )
     
     except Exception as e:
         st.markdown(f'<div class="error-box">❌ Processing error: {str(e)}</div>', unsafe_allow_html=True)
@@ -642,7 +608,7 @@ st.sidebar.markdown("""
 1. Upload your spectrum file
 2. The system will automatically apply all filters
 3. View results in the interactive tabs
-4. Compare filter performance
+4. Download filtered spectra as needed
 
 **Supported formats:**
 - Text files (.txt, .dat)
