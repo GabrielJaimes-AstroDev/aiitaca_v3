@@ -453,42 +453,54 @@ if not st.session_state.resources_downloaded:
             st.session_state.resources_downloaded = False
 
 # =============================================
-# SIDEBAR
+# SIDEBAR - CONFIGURATION
 # =============================================
 st.sidebar.title("Configuration")
 
-# Show downloaded files
-with st.sidebar.expander("📁 Downloaded Resources", expanded=True):
+# Show downloaded resources
+with st.sidebar:
+    st.header("📁 Downloaded Resources")
+    
+    # Models section
     if st.session_state.MODEL_DIR and os.path.exists(st.session_state.MODEL_DIR):
-        st.markdown("**Models Directory:**")
+        st.subheader("Models Directory")
         st.code(f"./{st.session_state.MODEL_DIR}", language="bash")
         
-        # Cambiado: Eliminado el expander anidado y reemplazado con un checkbox
-        show_models = st.checkbox("📂 Show Model Files", value=False)
-        if show_models:
-            st.markdown("<div class='file-explorer'>", unsafe_allow_html=True)
-            display_file_explorer(st.session_state.downloaded_files['models'], "Model Files Structure")
-            st.markdown("</div>", unsafe_allow_html=True)
+        # Display model files in a compact way
+        if st.session_state.downloaded_files['models']:
+            st.markdown("**Model files:**")
+            model_files_text = "\n".join(
+                f"- {file['path']} ({file['size']})" 
+                for file in st.session_state.downloaded_files['models']
+            )
+            st.text_area("Model files list", value=model_files_text, height=150, label_visibility="collapsed")
+        else:
+            st.warning("No model files found")
     
+    # Filters section
     if st.session_state.FILTER_DIR and os.path.exists(st.session_state.FILTER_DIR):
-        st.markdown("**Filters Directory:**")
+        st.subheader("Filters Directory")
         st.code(f"./{st.session_state.FILTER_DIR}", language="bash")
         
-        # Cambiado: Eliminado el expander anidado y reemplazado con un checkbox
-        show_filters = st.checkbox("📂 Show Filter Files", value=False)
-        if show_filters:
-            st.markdown("<div class='file-explorer'>", unsafe_allow_html=True)
-            display_file_explorer(st.session_state.downloaded_files['filters'], "Filter Files Structure")
-            st.markdown("</div>", unsafe_allow_html=True)
+        # Display filter files in a compact way
+        if st.session_state.downloaded_files['filters']:
+            st.markdown("**Filter files:**")
+            filter_files_text = "\n".join(
+                f"- {file['path']} ({file['size']})" 
+                for file in st.session_state.downloaded_files['filters']
+            )
+            st.text_area("Filter files list", value=filter_files_text, height=150, label_visibility="collapsed")
+        else:
+            st.warning("No filter files found")
 
-# Button to retry download
-if st.sidebar.button("🔄 Retry Download Resources"):
-    st.session_state.MODEL_DIR, st.session_state.FILTER_DIR = download_resources()
-    if st.session_state.MODEL_DIR and st.session_state.FILTER_DIR:
-        st.session_state.downloaded_files['models'] = list_downloaded_files(st.session_state.MODEL_DIR)
-        st.session_state.downloaded_files['filters'] = list_downloaded_files(st.session_state.FILTER_DIR)
-        st.session_state.resources_downloaded = True
-        st.experimental_rerun()
+    # Button to retry download
+    if st.button("🔄 Retry Download Resources"):
+        st.session_state.MODEL_DIR, st.session_state.FILTER_DIR = download_resources()
+        if st.session_state.MODEL_DIR and st.session_state.FILTER_DIR:
+            st.session_state.downloaded_files['models'] = list_downloaded_files(st.session_state.MODEL_DIR)
+            st.session_state.downloaded_files['filters'] = list_downloaded_files(st.session_state.FILTER_DIR)
+            st.session_state.resources_downloaded = True
+            st.rerun()
 
 # File selector
 input_file = st.sidebar.file_uploader(
