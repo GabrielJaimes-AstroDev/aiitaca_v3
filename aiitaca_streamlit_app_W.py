@@ -82,6 +82,17 @@ st.markdown("""
         color: white !important;
         border: none !important;
     }
+    .file-list {
+        background-color: #2d2d2d !important;
+        padding: 10px;
+        border-radius: 5px;
+        margin: 5px 0;
+        font-family: monospace;
+    }
+    .debug-info {
+        font-size: 0.8em;
+        color: #aaaaaa !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -114,12 +125,7 @@ def download_google_drive_folder(folder_url, output_dir):
         # Crear directorio de salida si no existe
         os.makedirs(output_dir, exist_ok=True)
         
-        # Configuración de la barra de progreso
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        status_text.text("Preparing download...")
-        
-        # Descargar usando gdown con barra de progreso
+        # Descargar usando gdown
         gdown.download_folder(
             id=folder_id,
             output=output_dir,
@@ -128,22 +134,10 @@ def download_google_drive_folder(folder_url, output_dir):
             remaining_ok=True
         )
         
-        # Verificar contenido descargado
-        downloaded_files = []
-        for root, _, files in os.walk(output_dir):
-            for file in files:
-                downloaded_files.append(os.path.join(root, file))
-        
-        if not downloaded_files:
-            raise ValueError("No files were downloaded")
-        
         return True
     except Exception as e:
         st.error(f"Error downloading folder: {str(e)}")
         return False
-    finally:
-        progress_bar.empty()
-        status_text.empty()
 
 def download_resources():
     """Descarga todos los recursos necesarios"""
@@ -167,64 +161,99 @@ def download_resources():
         if not download_google_drive_folder(FILTER_FOLDER_URL, FILTER_DIR):
             return None, None
     
-    # Verificar contenido descargado
-    model_files = []
-    for root, _, files in os.walk(MODEL_DIR):
-        for file in files:
-            if not file.startswith('.'):
-                model_files.append(os.path.join(root, file))
-    
-    filter_files = []
-    for root, _, files in os.walk(FILTER_DIR):
-        for file in files:
-            if file.endswith('.txt'):
-                filter_files.append(os.path.join(root, file))
-    
-    if not model_files or not filter_files:
-        st.error("Download incomplete - missing files")
-        return None, None
-    
-    st.success("Resources downloaded successfully!")
-    time.sleep(2)
-    st.session_state.resources_downloaded = True
-    
     return MODEL_DIR, FILTER_DIR
 
-# === FUNCIONES DE PROCESAMIENTO ===
+def list_downloaded_files(directory):
+    """Lista recursivamente todos los archivos descargados"""
+    file_list = []
+    for root, _, files in os.walk(directory):
+        for file in files:
+            if not file.startswith('.'):  # Ignorar archivos ocultos
+                rel_path = os.path.relpath(os.path.join(root, file), directory)
+                file_list.append(rel_path)
+    return file_list
+
+# === FUNCIONES DE PROCESAMIENTO MEJORADAS ===
 def read_spectrum(file_path):
-    """Lee un archivo de espectro en varios formatos"""
+    """Lee un archivo de espectro en varios formatos con mejor manejo de errores"""
     try:
         if file_path.endswith('.fits'):
             with fits.open(file_path) as hdul:
                 data = hdul[1].data
                 return data['freq'], data['intensity']
         else:
-            with open(file_path, 'r') as f:
-                lines = f.readlines()
-            data_lines = [line for line in lines if not line.strip().startswith(('!', '//'))]
-            data = np.loadtxt(data_lines)
+            # Manejar diferentes formatos de texto
+            with open(file_path, 'rb') as f:
+                content = f.read()
+            
+            # Intentar decodificar con diferentes codificaciones
+            for encoding in ['utf-8', 'latin-1', 'ascii']:
+                try:
+                    decoded_content = content.decode(encoding)
+                    lines = decoded_content.splitlines()
+                    break
+                except UnicodeDecodeError:
+                    continue
+            
+            # Filtrar líneas de comentario
+            data_lines = []
+            for line in lines:
+                stripped = line.strip()
+                if stripped and not stripped.startswith(('!', '//', '#')):
+                    data_lines.append(stripped)
+            
+            if not data_lines:
+                raise ValueError("No valid data lines found in file")
+            
+            # Leer datos numéricos
+            data = np.genfromtxt(data_lines)
+            if data.ndim != 2 or data.shape[1] < 2:
+                raise ValueError("Invalid data format - expected at least 2 columns")
+            
             return data[:, 0], data[:, 1]
+            
     except Exception as e:
         st.error(f"Error reading spectrum file: {str(e)}")
         return None, None
 
 def apply_filter(spectrum_freq, spectrum_intensity, filter_path):
-    """Aplica un filtro a un espectro"""
+    """Aplica un filtro a un espectro con mejor manejo de errores"""
     try:
-        filter_data = np.loadtxt(filter_path)
+        # Leer archivo de filtro con manejo de codificación
+        with open(filter_path, 'rb') as f:
+            content = f.read()
+        
+        # Intentar diferentes codificaciones
+        for encoding in ['utf-8', 'latin-1', 'ascii']:
+            try:
+                decoded_content = content.decode(encoding)
+                filter_data = np.genfromtxt(decoded_content.splitlines())
+                break
+            except (UnicodeDecodeError, ValueError):
+                continue
+        
+        if filter_data is None or filter_data.ndim != 2 or filter_data.shape[1] < 2:
+            raise ValueError("Invalid filter file format")
+        
         freq_filter = filter_data[:, 0] / 1e9  # Convertir a GHz
         intensity_filter = filter_data[:, 1]
         
         # Normalizar filtro
-        if np.max(intensity_filter) > 0:
-            intensity_filter = intensity_filter / np.max(intensity_filter)
+        max_intensity = np.max(intensity_filter)
+        if max_intensity > 0:
+            intensity_filter = intensity_filter / max_intensity
         
         # Interpolar espectro a las frecuencias del filtro
         valid_mask = (~np.isnan(spectrum_intensity)) & (~np.isinf(spectrum_intensity))
+        if np.sum(valid_mask) < 2:
+            raise ValueError("Not enough valid data points in spectrum")
+        
         interp_func = interp1d(
             spectrum_freq[valid_mask], 
             spectrum_intensity[valid_mask],
-            kind='linear', bounds_error=False, fill_value=0
+            kind='linear', 
+            bounds_error=False, 
+            fill_value=0
         )
         
         # Aplicar filtro
@@ -244,7 +273,7 @@ def apply_filter(spectrum_freq, spectrum_intensity, filter_path):
             'filter_name': os.path.splitext(os.path.basename(filter_path))[0]
         }
     except Exception as e:
-        st.error(f"Error applying filter: {str(e)}")
+        st.error(f"Error applying filter {os.path.basename(filter_path)}: {str(e)}")
         return None
 
 # === INTERFAZ PRINCIPAL ===
@@ -253,17 +282,46 @@ if 'resources_downloaded' not in st.session_state:
     st.session_state.resources_downloaded = False
     st.session_state.MODEL_DIR = None
     st.session_state.FILTER_DIR = None
+    st.session_state.downloaded_files = {'models': [], 'filters': []}
 
 # Descargar recursos al iniciar
 if not st.session_state.resources_downloaded:
     st.session_state.MODEL_DIR, st.session_state.FILTER_DIR = download_resources()
+    if st.session_state.MODEL_DIR and st.session_state.FILTER_DIR:
+        st.session_state.downloaded_files['models'] = list_downloaded_files(st.session_state.MODEL_DIR)
+        st.session_state.downloaded_files['filters'] = list_downloaded_files(st.session_state.FILTER_DIR)
+        st.session_state.resources_downloaded = True
 
 # Barra lateral para configuración
 st.sidebar.title("Configuration")
 
+# Mostrar archivos descargados en la barra lateral
+with st.sidebar.expander("📁 Downloaded Resources", expanded=True):
+    st.markdown("**Models Directory:**")
+    st.code(f"./{st.session_state.MODEL_DIR or 'Not downloaded'}", language="bash")
+    
+    if st.session_state.downloaded_files['models']:
+        st.markdown("**Model Files:**")
+        for file in st.session_state.downloaded_files['models'][:5]:  # Mostrar solo los primeros 5
+            st.markdown(f'<div class="file-list">{file}</div>', unsafe_allow_html=True)
+        if len(st.session_state.downloaded_files['models']) > 5:
+            st.markdown(f"*+ {len(st.session_state.downloaded_files['models']) - 5} more files...*")
+    
+    st.markdown("**Filters Directory:**")
+    st.code(f"./{st.session_state.FILTER_DIR or 'Not downloaded'}", language="bash")
+    
+    if st.session_state.downloaded_files['filters']:
+        st.markdown("**Filter Files:**")
+        for file in st.session_state.downloaded_files['filters']:
+            st.markdown(f'<div class="file-list">{file}</div>', unsafe_allow_html=True)
+
 # Botón para reintentar descarga
 if st.sidebar.button("↻ Retry Download Resources"):
     st.session_state.MODEL_DIR, st.session_state.FILTER_DIR = download_resources()
+    if st.session_state.MODEL_DIR and st.session_state.FILTER_DIR:
+        st.session_state.downloaded_files['models'] = list_downloaded_files(st.session_state.MODEL_DIR)
+        st.session_state.downloaded_files['filters'] = list_downloaded_files(st.session_state.FILTER_DIR)
+        st.session_state.resources_downloaded = True
     st.experimental_rerun()
 
 # Selector de archivo de entrada
@@ -283,7 +341,7 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
         # Leer espectro de entrada
         input_freq, input_spec = read_spectrum(tmp_path)
         if input_freq is None:
-            raise ValueError("Invalid spectrum file format")
+            raise ValueError("Invalid spectrum file format or content")
         
         # Obtener todos los archivos de filtros
         filter_files = []
@@ -293,12 +351,20 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
                     filter_files.append(os.path.join(root, file))
         
         if not filter_files:
-            raise ValueError("No filter files found")
+            raise ValueError("No filter files found in the filters directory")
         
         # Procesar con todos los filtros
         filtered_results = []
+        failed_filters = []
+        
         with st.spinner("Applying filters..."):
-            for filter_file in filter_files:
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            for i, filter_file in enumerate(filter_files):
+                status_text.text(f"Processing filter {i+1}/{len(filter_files)}: {os.path.basename(filter_file)}")
+                progress_bar.progress((i + 1) / len(filter_files))
+                
                 result = apply_filter(input_freq, input_spec, filter_file)
                 if result is not None:
                     # Guardar resultado filtrado temporalmente
@@ -317,9 +383,21 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
                         'filtered_data': result,
                         'output_path': output_path
                     })
+                else:
+                    failed_filters.append(os.path.basename(filter_file))
+            
+            progress_bar.empty()
+            status_text.empty()
         
         if not filtered_results:
-            raise ValueError("No filters were successfully applied")
+            raise ValueError(f"No filters were successfully applied. {len(failed_filters)} filters failed.")
+        
+        # Mostrar resumen de procesamiento
+        st.success(f"Successfully applied {len(filtered_results)} filters")
+        if failed_filters:
+            st.warning(f"Failed to apply {len(failed_filters)} filters:")
+            for failed in failed_filters:
+                st.markdown(f'<div class="file-list">{failed}</div>', unsafe_allow_html=True)
         
         # Mostrar resultados en pestañas
         tab1, tab2 = st.tabs(["Interactive View", "Filter Details"])
