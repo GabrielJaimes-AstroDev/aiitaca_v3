@@ -1,10 +1,12 @@
-streamlit
-numpy
-matplotlib
-plotly
-scikit-learn
-tensorflow
-gdown
-scipy
-tqdm
-astropy
+streamlit>=1.22.0
+numpy>=1.21.0
+matplotlib>=3.5.0
+plotly>=5.10.0
+tensorflow>=2.10.0  # o tensorflow-cpu si no usas GPU
+gdown>=4.6.0
+scipy>=1.9.0        # Para funciones de procesamiento de señales (peak detection)
+astropy>=5.1.0      # Si manejas archivos FITS (opcional)
+pillow>=9.0.0       # Para manejo de imágenes (opcional)
+tempfile            # (Incluido en Python estándar)
+shutil              # (Incluido en Python estándar)
+time                # (Incluido en Python estándar)
