@@ -14,16 +14,20 @@ import joblib
 from io import StringIO
 import warnings
 
+# Configuración inicial
+warnings.filterwarnings('ignore')
+
 # =============================================
 # INITIALIZE SESSION STATE
 # =============================================
-if not hasattr(st.session_state, 'resources_downloaded'):
+if 'resources_downloaded' not in st.session_state:
     st.session_state.resources_downloaded = False
     st.session_state.MODEL_DIR = None
     st.session_state.FILTER_DIR = None
     st.session_state.downloaded_files = {'models': [], 'filters': []}
     st.session_state.prediction_models_loaded = False
     st.session_state.prediction_models = None
+    st.session_state.models_downloaded = False
 
 # =============================================
 # PAGE CONFIGURATION
@@ -49,11 +53,10 @@ def list_downloaded_files(directory):
     file_list = []
     try:
         for root, dirs, files in os.walk(directory):
-            # Skip hidden directories
             dirs[:] = [d for d in dirs if not d.startswith('.')]
             
             for file in files:
-                if not file.startswith('.'):  # Ignore hidden files
+                if not file.startswith('.'):
                     full_path = os.path.join(root, file)
                     rel_path = os.path.relpath(full_path, directory)
                     try:
@@ -86,33 +89,6 @@ def get_file_size(path):
         size /= 1024.0
     return f"{size:.1f} TB"
 
-def display_directory_tree(directory, max_depth=3, current_depth=0):
-    """Display directory structure as a tree"""
-    if not os.path.exists(directory):
-        return f"<div class='error-box'>Directory not found: {directory}</div>"
-    
-    tree_html = "<div class='tree-view'>"
-    
-    try:
-        items = sorted(os.listdir(directory))
-        for item in items:
-            if item.startswith('.'):  # Ignore hidden files
-                continue
-                
-            full_path = os.path.join(directory, item)
-            if os.path.isdir(full_path):
-                tree_html += f"<div class='directory'>📁 {item}</div>"
-                if current_depth < max_depth:
-                    tree_html += display_directory_tree(full_path, max_depth, current_depth+1)
-            else:
-                size = get_file_size(full_path)
-                tree_html += f"<div class='file'>📄 {item} <span class='size'>{size}</span></div>"
-    except Exception as e:
-        tree_html += f"<div class='error-box'>Error reading directory: {str(e)}</div>"
-    
-    tree_html += "</div>"
-    return tree_html
-
 def download_google_drive_folder(folder_url, output_dir):
     """Recursively download all content from a Google Drive folder"""
     try:
@@ -134,47 +110,40 @@ def download_google_drive_folder(folder_url, output_dir):
 
 def download_resources():
     """Download all required resources"""
-    # Load URLs from external file
     with open('urls.txt', 'r') as f:
         urls = f.read().splitlines()
     
-    MODEL_FOLDER_URL = urls[0]  # First line is models URL
-    FILTER_FOLDER_URL = urls[1]  # Second line is filters URL
+    MODEL_FOLDER_URL = urls[0]
+    FILTER_FOLDER_URL = urls[1]
     
     MODEL_DIR = "downloaded_models"
     FILTER_DIR = "downloaded_filters"
     
     # Download models
-    with st.spinner("🔽 Downloading models (this may take several minutes)..."):
-        if not download_google_drive_folder(MODEL_FOLDER_URL, MODEL_DIR):
-            return None, None
+    if not download_google_drive_folder(MODEL_FOLDER_URL, MODEL_DIR):
+        return None, None
     
     # Download filters
-    with st.spinner("🔽 Downloading filters..."):
-        if not download_google_drive_folder(FILTER_FOLDER_URL, FILTER_DIR):
-            return None, None
+    if not download_google_drive_folder(FILTER_FOLDER_URL, FILTER_DIR):
+        return None, None
     
     return MODEL_DIR, FILTER_DIR
 
 def robust_read_file(file_path):
     """Read spectrum or filter files with robust format handling"""
     try:
-        # FITS files
         if file_path.endswith('.fits'):
             with fits.open(file_path) as hdul:
                 return hdul[1].data['freq'], hdul[1].data['intensity']
         
-        # Text files
         with open(file_path, 'rb') as f:
             content = f.read()
         
-        # Try different encodings
         for encoding in ['utf-8', 'latin-1', 'ascii']:
             try:
                 decoded = content.decode(encoding)
                 lines = decoded.splitlines()
                 
-                # Filter comment lines
                 data_lines = []
                 for line in lines:
                     stripped = line.strip()
@@ -185,7 +154,6 @@ def robust_read_file(file_path):
                 if not data_lines:
                     continue
                 
-                # Read numerical data
                 data = np.genfromtxt(data_lines)
                 if data.ndim == 2 and data.shape[1] >= 2:
                     return data[:, 0], data[:, 1]
@@ -202,29 +170,23 @@ def robust_read_file(file_path):
 def apply_spectral_filter(spectrum_freq, spectrum_intensity, filter_path):
     """Apply spectral filter with robust handling"""
     try:
-        # Read filter data
         filter_freq, filter_intensity = robust_read_file(filter_path)
         if filter_freq is None:
             return None
         
-        # Convert to GHz if needed
         if np.mean(filter_freq) > 1e6:
             filter_freq = filter_freq / 1e9
         
-        # Normalize filter
         max_intensity = np.max(filter_intensity)
         if max_intensity > 0:
             filter_intensity = filter_intensity / max_intensity
         
-        # Create mask for significant regions
         mask = filter_intensity > 0.01
         
-        # Validate input spectrum
         valid_points = (~np.isnan(spectrum_intensity)) & (~np.isinf(spectrum_intensity))
         if np.sum(valid_points) < 2:
             raise ValueError("Spectrum doesn't have enough valid points")
         
-        # Interpolation
         interp_func = interp1d(
             spectrum_freq[valid_points],
             spectrum_intensity[valid_points],
@@ -233,11 +195,9 @@ def apply_spectral_filter(spectrum_freq, spectrum_intensity, filter_path):
             fill_value=0.0
         )
         
-        # Apply filter
         filtered_data = interp_func(filter_freq) * filter_intensity
         filtered_data = np.clip(filtered_data, 0, None)
         
-        # Full version with zeros
         full_filtered = np.zeros_like(filter_freq)
         full_filtered[mask] = filtered_data[mask]
         
@@ -254,34 +214,9 @@ def apply_spectral_filter(spectrum_freq, spectrum_intensity, filter_path):
         st.error(f"Error applying filter {os.path.basename(filter_path)}: {str(e)}")
         return None
 
-def display_file_explorer(files, title, file_type='models'):
-    """Display an interactive file explorer"""
-    st.markdown(f"<div class='file-explorer-header'>{title}</div>", unsafe_allow_html=True)
-    
-    # Group files by directory
-    dir_structure = {}
-    for file in files:
-        dir_name = file['parent_dir']
-        if dir_name not in dir_structure:
-            dir_structure[dir_name] = []
-        dir_structure[dir_name].append(file)
-    
-    # Display as expandable sections
-    with st.container():
-        for dir_name, dir_files in dir_structure.items():
-            with st.expander(f"📁 {dir_name}", expanded=False):
-                for file in dir_files:
-                    st.markdown(f"""
-                    <div class='file-explorer-item'>
-                        <b>{os.path.basename(file['path'])}</b>
-                        <span style='float: right; color: #FF9800;'>{file['size']}</span>
-                    </div>
-                    """, unsafe_allow_html=True)
-
 def load_prediction_models(models_dir):
     """Load the prediction models from the downloaded resources"""
     try:
-        # Find model files
         model_files = []
         for root, _, files in os.walk(models_dir):
             for file in files:
@@ -289,10 +224,9 @@ def load_prediction_models(models_dir):
                     model_files.append(os.path.join(root, file))
         
         if not model_files:
-            st.error("No se encontraron archivos de modelo (.pkl) en el directorio de modelos descargados")
+            st.error("No model files (.pkl) found in the downloaded models directory")
             return None
         
-        # Load models
         models = {}
         for model_file in model_files:
             model_name = os.path.basename(model_file)
@@ -307,52 +241,46 @@ def load_prediction_models(models_dir):
             elif 'logn_scaler' in model_name:
                 models['logn_scaler'] = joblib.load(model_file)
         
-        # Verify all required models are loaded
         required_models = ['rf_tex', 'rf_logn', 'x_scaler', 'tex_scaler', 'logn_scaler']
         if not all(m in models for m in required_models):
             missing = [m for m in required_models if m not in models]
-            st.error(f"Faltan modelos requeridos: {', '.join(missing)}")
+            st.error(f"Missing required models: {', '.join(missing)}")
             return None
         
         return models
     except Exception as e:
-        st.error(f"Error cargando modelos de predicción: {str(e)}")
+        st.error(f"Error loading prediction models: {str(e)}")
         return None
 
 def process_spectrum_for_prediction(freq, intensity, interpolation_length=64610, min_required_points=1000):
     """Process spectrum for prediction"""
     try:
-        # Create a DataFrame from the input
         data = pd.DataFrame({
             'freq': freq,
             'intensity': intensity
         })
         
-        # Clean data
         data = data.replace([np.inf, -np.inf], np.nan).dropna()
         
         if len(data) < min_required_points:
-            st.error(f"Espectro tiene pocos puntos válidos ({len(data)})")
+            st.error(f"Spectrum has too few valid points ({len(data)})")
             return None
         
-        # Normalize frequency
         min_freq = data['freq'].min()
         max_freq = data['freq'].max()
         freq_range = max_freq - min_freq
         if freq_range == 0:
-            st.error("Rango de frecuencia cero en el espectro")
+            st.error("Zero frequency range in spectrum")
             return None
         
         normalized_freq = (data['freq'] - min_freq) / freq_range
         
-        # Interpolate
         interp_func = interp1d(normalized_freq, data['intensity'], 
                               kind='linear', bounds_error=False, 
                               fill_value=(data['intensity'].iloc[0], data['intensity'].iloc[-1]))
         new_freq = np.linspace(0, 1, interpolation_length)
         interpolated_intensity = interp_func(new_freq).astype(np.float32)
         
-        # Handle any remaining NaNs
         if np.any(np.isnan(interpolated_intensity)):
             nan_indices = np.where(np.isnan(interpolated_intensity))[0]
             for idx in nan_indices:
@@ -360,7 +288,6 @@ def process_spectrum_for_prediction(freq, intensity, interpolation_length=64610,
                 right_idx = min(interpolation_length-1, idx+1)
                 interpolated_intensity[idx] = np.mean(interpolated_intensity[[left_idx, right_idx]])
         
-        # Normalize intensity
         min_intensity = np.min(interpolated_intensity)
         max_intensity = np.max(interpolated_intensity)
         if max_intensity != min_intensity:
@@ -370,16 +297,14 @@ def process_spectrum_for_prediction(freq, intensity, interpolation_length=64610,
         
         return scaled_intensity
     except Exception as e:
-        st.error(f"Error procesando espectro para predicción: {str(e)}")
+        st.error(f"Error processing spectrum for prediction: {str(e)}")
         return None
 
 def make_predictions(spectrum_data, models):
     """Make predictions using loaded models"""
     try:
-        # Scale the spectrum
         scaled_spectrum = models['x_scaler'].transform([spectrum_data])
         
-        # Make predictions
         tex_pred_scaled = models['rf_tex'].predict(scaled_spectrum)
         tex_pred = models['tex_scaler'].inverse_transform(tex_pred_scaled.reshape(-1, 1))[0,0]
         
@@ -388,23 +313,18 @@ def make_predictions(spectrum_data, models):
         
         return tex_pred, logn_pred
     except Exception as e:
-        st.error(f"Error realizando predicciones: {str(e)}")
+        st.error(f"Error making predictions: {str(e)}")
         return None, None
 
 def plot_prediction_results(tex_pred, logn_pred):
     """Create plotly figure for prediction results"""
     fig = go.Figure()
     
-    # LogN plot
     fig.add_trace(go.Scatter(
         x=[18.1857],
         y=[logn_pred],
         mode='markers',
-        marker=dict(
-            color='red',
-            size=15,
-            line=dict(width=2, color='black')
-        ),
+        marker=dict(color='red', size=15, line=dict(width=2, color='black')),
         name='LogN predicho',
         text=[f"Pred: {logn_pred:.2f}"],
         hoverinfo='text',
@@ -412,16 +332,11 @@ def plot_prediction_results(tex_pred, logn_pred):
         yaxis='y1'
     ))
     
-    # Tex plot
     fig.add_trace(go.Scatter(
         x=[203.492],
         y=[tex_pred],
         mode='markers',
-        marker=dict(
-            color='red',
-            size=15,
-            line=dict(width=2, color='black')
-        ),
+        marker=dict(color='red', size=15, line=dict(width=2, color='black')),
         name='Tex predicho',
         text=[f"Pred: {tex_pred:.1f} K"],
         hoverinfo='text',
@@ -429,7 +344,6 @@ def plot_prediction_results(tex_pred, logn_pred):
         yaxis='y2'
     ))
     
-    # Update layout for subplots
     fig.update_layout(
         title='Resultados de Predicción',
         grid=dict(rows=1, columns=2, pattern='independent'),
@@ -439,15 +353,29 @@ def plot_prediction_results(tex_pred, logn_pred):
         height=400
     )
     
-    # Update xaxis properties for LogN plot
     fig.update_xaxes(title_text='LogN de referencia', row=1, col=1)
     fig.update_yaxes(title_text='LogN predicho', row=1, col=1)
-    
-    # Update xaxis properties for Tex plot
     fig.update_xaxes(title_text='Tex de referencia (K)', row=1, col=2)
     fig.update_yaxes(title_text='Tex predicho (K)', row=1, col=2)
     
     return fig
+
+def ensure_resources_downloaded():
+    """Ensure resources are downloaded only once"""
+    if not st.session_state.models_downloaded:
+        with st.spinner("🔽 Downloading resources for the first time (this may take several minutes)..."):
+            st.session_state.MODEL_DIR, st.session_state.FILTER_DIR = download_resources()
+            if st.session_state.MODEL_DIR and st.session_state.FILTER_DIR:
+                try:
+                    st.session_state.downloaded_files['models'] = list_downloaded_files(st.session_state.MODEL_DIR)
+                    st.session_state.downloaded_files['filters'] = list_downloaded_files(st.session_state.FILTER_DIR)
+                    st.session_state.resources_downloaded = True
+                    st.session_state.models_downloaded = True
+                except Exception as e:
+                    st.error(f"Error processing downloaded files: {str(e)}")
+                    st.session_state.resources_downloaded = False
+            else:
+                st.error("Failed to download required resources")
 
 # =============================================
 # HEADER
@@ -462,7 +390,6 @@ with col2:
     st.markdown('<p class="main-title">AI-ITACA | Artificial Intelligence Integral Tool for AstroChemical Analysis</p>', unsafe_allow_html=True)
     st.markdown('<p class="subtitle">Molecular Spectrum Analyzer</p>', unsafe_allow_html=True)
 
-# Load description from external file
 with open('description.txt', 'r') as f:
     description_content = f.read()
 st.markdown(f"<div class='description-panel'>{description_content}</div>", unsafe_allow_html=True)
@@ -470,34 +397,20 @@ st.markdown(f"<div class='description-panel'>{description_content}</div>", unsaf
 # =============================================
 # MAIN INTERFACE
 # =============================================
-# Download resources on startup
-if not st.session_state.resources_downloaded:
-    st.session_state.MODEL_DIR, st.session_state.FILTER_DIR = download_resources()
-    if st.session_state.MODEL_DIR and st.session_state.FILTER_DIR:
-        try:
-            st.session_state.downloaded_files['models'] = list_downloaded_files(st.session_state.MODEL_DIR)
-            st.session_state.downloaded_files['filters'] = list_downloaded_files(st.session_state.FILTER_DIR)
-            st.session_state.resources_downloaded = True
-            st.experimental_rerun()
-        except Exception as e:
-            st.error(f"Error processing downloaded files: {str(e)}")
-            st.session_state.resources_downloaded = False
+ensure_resources_downloaded()
 
 # =============================================
 # SIDEBAR - CONFIGURATION
 # =============================================
 st.sidebar.title("Configuration")
 
-# Show downloaded resources
 with st.sidebar:
     st.header("📁 Downloaded Resources")
     
-    # Models section
     if st.session_state.MODEL_DIR and os.path.exists(st.session_state.MODEL_DIR):
         st.subheader("Models Directory")
         st.code(f"./{st.session_state.MODEL_DIR}", language="bash")
         
-        # Display model files in a compact way
         if st.session_state.downloaded_files['models']:
             st.markdown("**Model files:**")
             model_files_text = "\n".join(
@@ -508,12 +421,10 @@ with st.sidebar:
         else:
             st.warning("No model files found")
     
-    # Filters section
     if st.session_state.FILTER_DIR and os.path.exists(st.session_state.FILTER_DIR):
         st.subheader("Filters Directory")
         st.code(f"./{st.session_state.FILTER_DIR}", language="bash")
         
-        # Display filter files in a compact way
         if st.session_state.downloaded_files['filters']:
             st.markdown("**Filter files:**")
             filter_files_text = "\n".join(
@@ -524,16 +435,12 @@ with st.sidebar:
         else:
             st.warning("No filter files found")
 
-    # Button to retry download
     if st.button("🔄 Retry Download Resources"):
-        st.session_state.MODEL_DIR, st.session_state.FILTER_DIR = download_resources()
-        if st.session_state.MODEL_DIR and st.session_state.FILTER_DIR:
-            st.session_state.downloaded_files['models'] = list_downloaded_files(st.session_state.MODEL_DIR)
-            st.session_state.downloaded_files['filters'] = list_downloaded_files(st.session_state.FILTER_DIR)
-            st.session_state.resources_downloaded = True
-            st.rerun()
+        st.session_state.models_downloaded = False
+        st.session_state.resources_downloaded = False
+        ensure_resources_downloaded()
+        st.rerun()
 
-# File selector
 input_file = st.sidebar.file_uploader(
     "Input Spectrum File",
     type=['.txt', '.dat', '.fits', '.spec'],
@@ -543,18 +450,16 @@ input_file = st.sidebar.file_uploader(
 # =============================================
 # MAIN PROCESSING
 # =============================================
-if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FILTER_DIR:
+if input_file is not None and st.session_state.resources_downloaded:
     with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
         tmp_file.write(input_file.getvalue())
         tmp_path = tmp_file.name
     
     try:
-        # Read input spectrum
         input_freq, input_spec = robust_read_file(tmp_path)
         if input_freq is None:
             raise ValueError("Could not read the spectrum file")
         
-        # Get all filter files
         filter_files = []
         for root, _, files in os.walk(st.session_state.FILTER_DIR):
             for file in files:
@@ -564,7 +469,6 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
         if not filter_files:
             raise ValueError("No filter files found in the filters directory")
         
-        # Process with all filters
         filtered_results = []
         failed_filters = []
         
@@ -579,7 +483,6 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
                 
                 result = apply_spectral_filter(input_freq, input_spec, filter_file)
                 if result is not None:
-                    # Save filtered result temporarily
                     output_filename = f"filtered_{result['filter_name']}.txt"
                     output_path = os.path.join(tempfile.gettempdir(), output_filename)
                     
@@ -606,7 +509,6 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
             progress_bar.empty()
             status_text.empty()
         
-        # Show results
         if not filtered_results:
             raise ValueError(f"No filters were successfully applied. {len(failed_filters)} filters failed.")
         
@@ -615,14 +517,11 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
         if failed_filters:
             st.markdown(f'<div class="warning-box">⚠ Failed to apply {len(failed_filters)} filters: {", ".join(failed_filters)}</div>', unsafe_allow_html=True)
         
-        # Show in tabs
         tab1, tab2, tab3 = st.tabs(["Interactive Spectrum", "Filter Details", "Molecular Parameters Prediction"])
         
         with tab1:
-            # Main interactive graph
             fig_main = go.Figure()
             
-            # Original spectrum
             fig_main.add_trace(go.Scatter(
                 x=input_freq,
                 y=input_spec,
@@ -631,7 +530,6 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
                 line=dict(color='white', width=2))
             )
             
-            # Add all filtered spectra
             for result in filtered_results:
                 fig_main.add_trace(go.Scatter(
                     x=result['filtered_data']['freq'],
@@ -661,13 +559,11 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
             st.plotly_chart(fig_main, use_container_width=True)
         
         with tab2:
-            # Details for each filter
             for result in filtered_results:
                 with st.expander(f"Filter: {result['name']} (from {result['filtered_data']['parent_dir']})", expanded=True):
                     col1, col2 = st.columns(2)
                     
                     with col1:
-                        # Filter profile
                         fig_filter = go.Figure()
                         fig_filter.add_trace(go.Scatter(
                             x=result['filtered_data']['freq'],
@@ -686,7 +582,6 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
                         st.plotly_chart(fig_filter, use_container_width=True)
                     
                     with col2:
-                        # Original vs filtered comparison
                         fig_compare = go.Figure()
                         fig_compare.add_trace(go.Scatter(
                             x=result['original_freq'],
@@ -711,7 +606,6 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
                         )
                         st.plotly_chart(fig_compare, use_container_width=True)
                     
-                    # Download button
                     with open(result['output_path'], 'rb') as f:
                         st.download_button(
                             label=f"Download {result['name']} filtered spectrum",
@@ -726,14 +620,15 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
             st.markdown("## Molecular Parameters Prediction")
             st.markdown("Predict LogN (column density) and Tex (excitation temperature) using machine learning models.")
             
-            # Load prediction models if not already loaded
             if not st.session_state.prediction_models_loaded:
                 with st.spinner("Loading prediction models..."):
-                    st.session_state.prediction_models = load_prediction_models(st.session_state.MODEL_DIR)
-                    st.session_state.prediction_models_loaded = True
+                    if st.session_state.resources_downloaded:
+                        st.session_state.prediction_models = load_prediction_models(st.session_state.MODEL_DIR)
+                        st.session_state.prediction_models_loaded = True if st.session_state.prediction_models else False
+                    else:
+                        st.error("Resources not downloaded. Please wait or retry download.")
             
-            if st.session_state.prediction_models:
-                # Select which filtered spectrum to use for prediction
+            if st.session_state.prediction_models_loaded and st.session_state.prediction_models:
                 filter_options = [f"{res['name']} (from {res['filtered_data']['parent_dir']})" for res in filtered_results]
                 selected_filter = st.selectbox(
                     "Select filtered spectrum for prediction:",
@@ -744,7 +639,6 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
                 selected_index = filter_options.index(selected_filter)
                 selected_result = filtered_results[selected_index]
                 
-                # Process spectrum for prediction
                 with st.spinner("Processing spectrum for prediction..."):
                     processed_spectrum = process_spectrum_for_prediction(
                         selected_result['filtered_data']['freq'],
@@ -752,27 +646,23 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
                     )
                 
                 if processed_spectrum is not None:
-                    # Make predictions
                     with st.spinner("Making predictions..."):
                         tex_pred, logn_pred = make_predictions(processed_spectrum, st.session_state.prediction_models)
                     
                     if tex_pred is not None and logn_pred is not None:
                         st.success("Prediction completed successfully!")
                         
-                        # Display results
                         col1, col2 = st.columns(2)
                         with col1:
                             st.metric(label="Predicted Excitation Temperature (Tex)", value=f"{tex_pred:.2f} K")
                         with col2:
                             st.metric(label="Predicted Column Density (LogN)", value=f"{logn_pred:.2f}")
                         
-                        # Plot results
                         st.plotly_chart(
                             plot_prediction_results(tex_pred, logn_pred),
                             use_container_width=True
                         )
                         
-                        # Show details
                         with st.expander("Prediction Details"):
                             st.markdown(f"""
                             **Filter used:** {selected_result['name']}  
@@ -792,7 +682,7 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
     finally:
         os.unlink(tmp_path)
 
-elif not st.session_state.MODEL_DIR or not st.session_state.FILTER_DIR:
+elif not st.session_state.resources_downloaded:
     st.markdown("""
     <div class="error-box">
     ❌ Required resources could not be downloaded.<br><br>
@@ -815,8 +705,8 @@ st.sidebar.markdown("""
 1. Upload your spectrum file
 2. The system will automatically apply all filters
 3. View results in the interactive tabs
-4. Download filtered spectra as needed
-5. Predict molecular parameters in the Prediction tab
+4. Predict molecular parameters in the Prediction tab
+5. Download filtered spectra as needed
 
 **Supported formats:**
 - Text files (.txt, .dat)
