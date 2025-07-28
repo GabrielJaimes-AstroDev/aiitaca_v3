@@ -1,2 +1,2 @@
-MODEL_FOLDER_URL=https://drive.google.com/drive/folders/1LO5nJSMba9djBU7yLt4vo_Bvwaj4lqFi?usp=drive_link
-FILTER_FOLDER_URL=https://drive.google.com/drive/folders/1xuxN70OI1UsjzdZ1jBjznIBrtLPykqAP?usp=drive_link
+https://drive.google.com/drive/folders/1OUzqNyB1vZ9jeJJaRgGmkQD2_5awpyo-?usp=drive_link
+https://drive.google.com/drive/folders/1M2jLy-sPyHhFUantcNptyorlREwTmw5n?usp=drive_link
