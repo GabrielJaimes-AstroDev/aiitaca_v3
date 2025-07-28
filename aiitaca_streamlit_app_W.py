@@ -13,9 +13,48 @@ import pandas as pd
 import joblib
 from io import StringIO
 import warnings
+import sys
+import subprocess
 
 # Configuración inicial
 warnings.filterwarnings('ignore')
+
+# =============================================
+# VERIFICACIÓN DE DEPENDENCIAS
+# =============================================
+def verify_dependencies():
+    """Verifica todas las dependencias requeridas"""
+    required_packages = {
+        'numpy': 'numpy',
+        'scikit-learn': 'sklearn',
+        'joblib': 'joblib',
+        'astropy': 'astropy',
+        'plotly': 'plotly',
+        'scipy': 'scipy'
+    }
+    
+    missing = []
+    for pkg_name, pkg_import in required_packages.items():
+        try:
+            __import__(pkg_import)
+        except ImportError:
+            missing.append(pkg_name)
+    
+    if missing:
+        st.error(f"Faltan dependencias: {', '.join(missing)}")
+        if st.button("Instalar dependencias automáticamente"):
+            try:
+                subprocess.check_call([sys.executable, "-m", "pip", "install"] + missing)
+                st.success("Dependencias instaladas correctamente. Por favor reinicie la aplicación.")
+                st.experimental_rerun()
+            except subprocess.CalledProcessError:
+                st.error("Error al instalar dependencias. Por favor instálelas manualmente.")
+        return False
+    return True
+
+# Verificar dependencias al inicio
+if not verify_dependencies():
+    st.stop()
 
 # =============================================
 # INITIALIZE SESSION STATE
@@ -49,7 +88,7 @@ st.markdown(f"<style>{css_styles}</style>", unsafe_allow_html=True)
 # HELPER FUNCTIONS
 # =============================================
 def list_downloaded_files(directory):
-    """Recursively list all downloaded files with detailed information"""
+    """Lista recursivamente todos los archivos descargados"""
     file_list = []
     try:
         for root, dirs, files in os.walk(directory):
@@ -81,7 +120,7 @@ def list_downloaded_files(directory):
     return file_list
 
 def get_file_size(path):
-    """Get file size in human-readable format"""
+    """Obtiene el tamaño de archivo en formato legible"""
     size = os.path.getsize(path)
     for unit in ['B', 'KB', 'MB', 'GB']:
         if size < 1024.0:
@@ -90,7 +129,7 @@ def get_file_size(path):
     return f"{size:.1f} TB"
 
 def download_google_drive_folder(folder_url, output_dir):
-    """Recursively download all content from a Google Drive folder"""
+    """Descarga recursivamente contenido de Google Drive"""
     try:
         folder_id = folder_url.split('folders/')[-1].split('?')[0]
         shutil.rmtree(output_dir, ignore_errors=True)
@@ -109,28 +148,32 @@ def download_google_drive_folder(folder_url, output_dir):
         return False
 
 def download_resources():
-    """Download all required resources"""
-    with open('urls.txt', 'r') as f:
-        urls = f.read().splitlines()
-    
-    MODEL_FOLDER_URL = urls[0]
-    FILTER_FOLDER_URL = urls[1]
-    
-    MODEL_DIR = "downloaded_models"
-    FILTER_DIR = "downloaded_filters"
-    
-    # Download models
-    if not download_google_drive_folder(MODEL_FOLDER_URL, MODEL_DIR):
+    """Descarga todos los recursos requeridos"""
+    try:
+        with open('urls.txt', 'r') as f:
+            urls = f.read().splitlines()
+        
+        MODEL_FOLDER_URL = urls[0]
+        FILTER_FOLDER_URL = urls[1]
+        
+        MODEL_DIR = "downloaded_models"
+        FILTER_DIR = "downloaded_filters"
+        
+        # Descargar modelos
+        if not download_google_drive_folder(MODEL_FOLDER_URL, MODEL_DIR):
+            return None, None
+        
+        # Descargar filtros
+        if not download_google_drive_folder(FILTER_FOLDER_URL, FILTER_DIR):
+            return None, None
+        
+        return MODEL_DIR, FILTER_DIR
+    except Exception as e:
+        st.error(f"Error downloading resources: {str(e)}")
         return None, None
-    
-    # Download filters
-    if not download_google_drive_folder(FILTER_FOLDER_URL, FILTER_DIR):
-        return None, None
-    
-    return MODEL_DIR, FILTER_DIR
 
 def robust_read_file(file_path):
-    """Read spectrum or filter files with robust format handling"""
+    """Lee archivos de espectro o filtros con manejo robusto"""
     try:
         if file_path.endswith('.fits'):
             with fits.open(file_path) as hdul:
@@ -162,13 +205,12 @@ def robust_read_file(file_path):
                 continue
         
         raise ValueError("Could not read the file with any standard encoding")
-    
     except Exception as e:
         st.error(f"Error reading file {os.path.basename(file_path)}: {str(e)}")
         return None, None
 
 def apply_spectral_filter(spectrum_freq, spectrum_intensity, filter_path):
-    """Apply spectral filter with robust handling"""
+    """Aplica filtro espectral con manejo robusto"""
     try:
         filter_freq, filter_intensity = robust_read_file(filter_path)
         if filter_freq is None:
@@ -209,51 +251,59 @@ def apply_spectral_filter(spectrum_freq, spectrum_intensity, filter_path):
             'filter_name': os.path.splitext(os.path.basename(filter_path))[0],
             'parent_dir': os.path.basename(os.path.dirname(filter_path))
         }
-    
     except Exception as e:
         st.error(f"Error applying filter {os.path.basename(filter_path)}: {str(e)}")
         return None
 
 def load_prediction_models(models_dir):
-    """Load the prediction models from the downloaded resources"""
+    """Carga los modelos de predicción con manejo mejorado de errores"""
     try:
-        model_files = []
+        # Verificar estructura de directorios
+        if not os.path.exists(models_dir):
+            st.error(f"Models directory not found: {models_dir}")
+            return None
+        
+        # Buscar archivos de modelos
+        model_files = {}
         for root, _, files in os.walk(models_dir):
             for file in files:
                 if file.endswith('.pkl'):
-                    model_files.append(os.path.join(root, file))
+                    model_name = file.split('.')[0]
+                    model_files[model_name] = os.path.join(root, file)
         
-        if not model_files:
-            st.error("No model files (.pkl) found in the downloaded models directory")
+        # Verificar modelos requeridos
+        required_models = [
+            'random_forest_tex',
+            'random_forest_logn',
+            'x_scaler',
+            'tex_scaler',
+            'logn_scaler'
+        ]
+        
+        missing_models = [m for m in required_models if m not in model_files]
+        if missing_models:
+            st.error(f"Missing model files: {', '.join(missing_models)}")
             return None
         
+        # Cargar modelos
         models = {}
-        for model_file in model_files:
-            model_name = os.path.basename(model_file)
-            if 'random_forest_tex' in model_name:
-                models['rf_tex'] = joblib.load(model_file)
-            elif 'random_forest_logn' in model_name:
-                models['rf_logn'] = joblib.load(model_file)
-            elif 'x_scaler' in model_name:
-                models['x_scaler'] = joblib.load(model_file)
-            elif 'tex_scaler' in model_name:
-                models['tex_scaler'] = joblib.load(model_file)
-            elif 'logn_scaler' in model_name:
-                models['logn_scaler'] = joblib.load(model_file)
-        
-        required_models = ['rf_tex', 'rf_logn', 'x_scaler', 'tex_scaler', 'logn_scaler']
-        if not all(m in models for m in required_models):
-            missing = [m for m in required_models if m not in models]
-            st.error(f"Missing required models: {', '.join(missing)}")
+        try:
+            models['rf_tex'] = joblib.load(model_files['random_forest_tex'])
+            models['rf_logn'] = joblib.load(model_files['random_forest_logn'])
+            models['x_scaler'] = joblib.load(model_files['x_scaler'])
+            models['tex_scaler'] = joblib.load(model_files['tex_scaler'])
+            models['logn_scaler'] = joblib.load(model_files['logn_scaler'])
+        except Exception as e:
+            st.error(f"Error loading model: {str(e)}")
             return None
         
         return models
     except Exception as e:
-        st.error(f"Error loading prediction models: {str(e)}")
+        st.error(f"Model loading failed: {str(e)}")
         return None
 
 def process_spectrum_for_prediction(freq, intensity, interpolation_length=64610, min_required_points=1000):
-    """Process spectrum for prediction"""
+    """Procesa el espectro para predicción"""
     try:
         data = pd.DataFrame({
             'freq': freq,
@@ -275,9 +325,14 @@ def process_spectrum_for_prediction(freq, intensity, interpolation_length=64610,
         
         normalized_freq = (data['freq'] - min_freq) / freq_range
         
-        interp_func = interp1d(normalized_freq, data['intensity'], 
-                              kind='linear', bounds_error=False, 
-                              fill_value=(data['intensity'].iloc[0], data['intensity'].iloc[-1]))
+        interp_func = interp1d(
+            normalized_freq, 
+            data['intensity'], 
+            kind='linear', 
+            bounds_error=False, 
+            fill_value=(data['intensity'].iloc[0], data['intensity'].iloc[-1])
+        )
+        
         new_freq = np.linspace(0, 1, interpolation_length)
         interpolated_intensity = interp_func(new_freq).astype(np.float32)
         
@@ -301,7 +356,7 @@ def process_spectrum_for_prediction(freq, intensity, interpolation_length=64610,
         return None
 
 def make_predictions(spectrum_data, models):
-    """Make predictions using loaded models"""
+    """Realiza predicciones usando los modelos cargados"""
     try:
         scaled_spectrum = models['x_scaler'].transform([spectrum_data])
         
@@ -317,27 +372,29 @@ def make_predictions(spectrum_data, models):
         return None, None
 
 def plot_prediction_results(tex_pred, logn_pred):
-    """Create plotly figure for prediction results"""
+    """Crea figura interactiva para resultados de predicción"""
     fig = go.Figure()
     
+    # LogN plot
     fig.add_trace(go.Scatter(
         x=[18.1857],
         y=[logn_pred],
         mode='markers',
         marker=dict(color='red', size=15, line=dict(width=2, color='black')),
-        name='LogN predicho',
+        name='Predicted LogN',
         text=[f"Pred: {logn_pred:.2f}"],
         hoverinfo='text',
         xaxis='x1',
         yaxis='y1'
     ))
     
+    # Tex plot
     fig.add_trace(go.Scatter(
         x=[203.492],
         y=[tex_pred],
         mode='markers',
         marker=dict(color='red', size=15, line=dict(width=2, color='black')),
-        name='Tex predicho',
+        name='Predicted Tex',
         text=[f"Pred: {tex_pred:.1f} K"],
         hoverinfo='text',
         xaxis='x2',
@@ -345,7 +402,7 @@ def plot_prediction_results(tex_pred, logn_pred):
     ))
     
     fig.update_layout(
-        title='Resultados de Predicción',
+        title='Prediction Results',
         grid=dict(rows=1, columns=2, pattern='independent'),
         plot_bgcolor='#0D0F14',
         paper_bgcolor='#0D0F14',
@@ -353,15 +410,15 @@ def plot_prediction_results(tex_pred, logn_pred):
         height=400
     )
     
-    fig.update_xaxes(title_text='LogN de referencia', row=1, col=1)
-    fig.update_yaxes(title_text='LogN predicho', row=1, col=1)
-    fig.update_xaxes(title_text='Tex de referencia (K)', row=1, col=2)
-    fig.update_yaxes(title_text='Tex predicho (K)', row=1, col=2)
+    fig.update_xaxes(title_text='Reference LogN', row=1, col=1)
+    fig.update_yaxes(title_text='Predicted LogN', row=1, col=1)
+    fig.update_xaxes(title_text='Reference Tex (K)', row=1, col=2)
+    fig.update_yaxes(title_text='Predicted Tex (K)', row=1, col=2)
     
     return fig
 
 def ensure_resources_downloaded():
-    """Ensure resources are downloaded only once"""
+    """Asegura que los recursos se descarguen solo una vez"""
     if not st.session_state.models_downloaded:
         with st.spinner("🔽 Downloading resources for the first time (this may take several minutes)..."):
             st.session_state.MODEL_DIR, st.session_state.FILTER_DIR = download_resources()
@@ -620,15 +677,11 @@ if input_file is not None and st.session_state.resources_downloaded:
             st.markdown("## Molecular Parameters Prediction")
             st.markdown("Predict LogN (column density) and Tex (excitation temperature) using machine learning models.")
             
-            if not st.session_state.prediction_models_loaded:
-                with st.spinner("Loading prediction models..."):
-                    if st.session_state.resources_downloaded:
-                        st.session_state.prediction_models = load_prediction_models(st.session_state.MODEL_DIR)
-                        st.session_state.prediction_models_loaded = True if st.session_state.prediction_models else False
-                    else:
-                        st.error("Resources not downloaded. Please wait or retry download.")
+            if st.session_state.prediction_models is None:
+                with st.spinner("🔄 Loading prediction models (first time may take a moment)..."):
+                    st.session_state.prediction_models = load_prediction_models(st.session_state.MODEL_DIR)
             
-            if st.session_state.prediction_models_loaded and st.session_state.prediction_models:
+            if st.session_state.prediction_models:
                 filter_options = [f"{res['name']} (from {res['filtered_data']['parent_dir']})" for res in filtered_results]
                 selected_filter = st.selectbox(
                     "Select filtered spectrum for prediction:",
@@ -675,7 +728,7 @@ if input_file is not None and st.session_state.resources_downloaded:
                 else:
                     st.error("Failed to process spectrum for prediction")
             else:
-                st.error("Prediction models could not be loaded")
+                st.error("Prediction models could not be loaded. Please check if models are properly downloaded.")
     
     except Exception as e:
         st.markdown(f'<div class="error-box">❌ Processing error: {str(e)}</div>', unsafe_allow_html=True)
