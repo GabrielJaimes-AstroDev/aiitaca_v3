@@ -9,10 +9,6 @@ from scipy.interpolate import interp1d
 from astropy.io import fits
 import shutil
 from glob import glob
-import pandas as pd
-import joblib
-from io import StringIO
-import warnings
 
 # =============================================
 # INITIALIZE SESSION STATE
@@ -22,8 +18,6 @@ if not hasattr(st.session_state, 'resources_downloaded'):
     st.session_state.MODEL_DIR = None
     st.session_state.FILTER_DIR = None
     st.session_state.downloaded_files = {'models': [], 'filters': []}
-    st.session_state.filtered_results = []
-    st.session_state.prediction_models = {}
 
 # =============================================
 # PAGE CONFIGURATION
@@ -278,153 +272,6 @@ def display_file_explorer(files, title, file_type='models'):
                     </div>
                     """, unsafe_allow_html=True)
 
-def process_spectrum_for_prediction(file_path, interpolation_length=64610, min_required_points=1000):
-    """Procesa el espectro para predicción"""
-    warnings.filterwarnings('ignore')
-    
-    try:
-        with open(file_path, 'r') as f:
-            lines = f.readlines()   
-        
-        data_lines = []
-        for line in lines:
-            stripped = line.strip()
-            if stripped and not stripped.startswith(('!', '//', '#')):
-                parts = stripped.split()
-                if len(parts) >= 2:
-                    try:
-                        float(parts[0]), float(parts[1])
-                        data_lines.append(line)
-                    except ValueError:
-                        continue
-        
-        if not data_lines:
-            st.error("No se encontraron datos numéricos en el espectro de prueba")
-            return None
-        
-        data = pd.read_csv(StringIO('\n'.join(data_lines)), 
-                         sep='\s+', header=None, names=['freq', 'intensity'],
-                         dtype=np.float32)
-        
-        data = data.replace([np.inf, -np.inf], np.nan).dropna()
-        
-        if len(data) < min_required_points:
-            st.error(f"Espectro de prueba tiene pocos puntos ({len(data)})")
-            return None
-        
-        min_freq = data['freq'].min()
-        max_freq = data['freq'].max()
-        freq_range = max_freq - min_freq
-        if freq_range == 0:
-            st.error("Rango de frecuencia cero en espectro de prueba")
-            return None
-        
-        normalized_freq = (data['freq'] - min_freq) / freq_range
-        
-        interp_func = interp1d(normalized_freq, data['intensity'], 
-                              kind='linear', bounds_error=False, 
-                              fill_value=(data['intensity'].iloc[0], data['intensity'].iloc[-1]))
-        new_freq = np.linspace(0, 1, interpolation_length)
-        interpolated_intensity = interp_func(new_freq).astype(np.float32)
-        
-        if np.any(np.isnan(interpolated_intensity)):
-            nan_indices = np.where(np.isnan(interpolated_intensity))[0]
-            for idx in nan_indices:
-                left_idx = max(0, idx-1)
-                right_idx = min(interpolation_length-1, idx+1)
-                interpolated_intensity[idx] = np.mean(interpolated_intensity[[left_idx, right_idx]])
-        
-        min_intensity = np.min(interpolated_intensity)
-        max_intensity = np.max(interpolated_intensity)
-        if max_intensity != min_intensity:
-            scaled_intensity = (interpolated_intensity - min_intensity) / (max_intensity - min_intensity)
-        else:
-            scaled_intensity = np.zeros_like(interpolated_intensity)
-        
-        return scaled_intensity.reshape(1, -1)
-    except Exception as e:
-        st.error(f"Error procesando espectro para predicción: {str(e)}")
-        return None
-
-def load_prediction_models(model_dir):
-    """Carga todos los modelos de predicción disponibles"""
-    if not model_dir or not os.path.exists(model_dir):
-        return {}
-    
-    model_dict = {}
-    
-    for root, dirs, files in os.walk(model_dir):
-        # Buscar directorios que contengan los modelos necesarios
-        if ('random_forest_tex.pkl' in files and 
-            'random_forest_logn.pkl' in files and 
-            'x_scaler.pkl' in files and
-            'tex_scaler.pkl' in files and
-            'logn_scaler.pkl' in files):
-            
-            model_name = os.path.basename(root)
-            try:
-                model_dict[model_name] = {
-                    'path': root,
-                    'rf_tex': joblib.load(os.path.join(root, 'random_forest_tex.pkl')),
-                    'rf_logn': joblib.load(os.path.join(root, 'random_forest_logn.pkl')),
-                    'x_scaler': joblib.load(os.path.join(root, 'x_scaler.pkl')),
-                    'tex_scaler': joblib.load(os.path.join(root, 'tex_scaler.pkl')),
-                    'logn_scaler': joblib.load(os.path.join(root, 'logn_scaler.pkl'))
-                }
-            except Exception as e:
-                st.error(f"Error cargando modelos en {root}: {str(e)}")
-    
-    return model_dict
-
-def predict_spectrum(spectrum_data, model_data):
-    """Realiza predicciones usando los modelos cargados"""
-    try:
-        # Escalar los datos del espectro
-        scaled_spectrum = model_data['x_scaler'].transform(spectrum_data)
-        
-        # Predecir valores escalados
-        tex_pred_scaled = model_data['rf_tex'].predict(scaled_spectrum)
-        logn_pred_scaled = model_data['rf_logn'].predict(scaled_spectrum)
-        
-        # Invertir escalado para obtener valores reales
-        tex_pred = model_data['tex_scaler'].inverse_transform(tex_pred_scaled.reshape(-1, 1))[0,0]
-        logn_pred = model_data['logn_scaler'].inverse_transform(logn_pred_scaled.reshape(-1, 1))[0,0]
-        
-        return tex_pred, logn_pred
-    except Exception as e:
-        st.error(f"Error durante la predicción: {str(e)}")
-        return None, None
-
-def plot_prediction_results(tex_pred, logn_pred):
-    """Genera gráficos de los resultados de predicción"""
-    fig = go.Figure()
-    
-    # Gráfico para Tex
-    fig.add_trace(go.Indicator(
-        mode="number",
-        value=tex_pred,
-        number={'suffix': " K", 'font': {'size': 40}},
-        title={'text': "Tex predicho", 'font': {'size': 20}},
-        domain={'row': 0, 'column': 0}
-    ))
-    
-    # Gráfico para LogN
-    fig.add_trace(go.Indicator(
-        mode="number",
-        value=logn_pred,
-        number={'font': {'size': 40}},
-        title={'text': "LogN predicho", 'font': {'size': 20}},
-        domain={'row': 0, 'column': 1}
-    ))
-    
-    fig.update_layout(
-        grid={'rows': 1, 'columns': 2, 'pattern': "independent"},
-        height=300,
-        margin=dict(l=50, r=50, t=50, b=50)
-    )
-    
-    st.plotly_chart(fig, use_container_width=True)
-
 # =============================================
 # HEADER
 # =============================================
@@ -454,7 +301,6 @@ if not st.session_state.resources_downloaded:
             st.session_state.downloaded_files['models'] = list_downloaded_files(st.session_state.MODEL_DIR)
             st.session_state.downloaded_files['filters'] = list_downloaded_files(st.session_state.FILTER_DIR)
             st.session_state.resources_downloaded = True
-            st.session_state.prediction_models = load_prediction_models(st.session_state.MODEL_DIR)
             st.experimental_rerun()
         except Exception as e:
             st.error(f"Error processing downloaded files: {str(e)}")
@@ -508,7 +354,6 @@ with st.sidebar:
             st.session_state.downloaded_files['models'] = list_downloaded_files(st.session_state.MODEL_DIR)
             st.session_state.downloaded_files['filters'] = list_downloaded_files(st.session_state.FILTER_DIR)
             st.session_state.resources_downloaded = True
-            st.session_state.prediction_models = load_prediction_models(st.session_state.MODEL_DIR)
             st.rerun()
 
 # File selector
@@ -576,17 +421,13 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
                         'original_freq': input_freq,
                         'original_intensity': input_spec,
                         'filtered_data': result,
-                        'output_path': output_path,
-                        'parent_dir': result['parent_dir']
+                        'output_path': output_path
                     })
                 else:
                     failed_filters.append(os.path.basename(filter_file))
             
             progress_bar.empty()
             status_text.empty()
-        
-        # Store results in session state
-        st.session_state.filtered_results = filtered_results
         
         # Show results
         if not filtered_results:
@@ -598,7 +439,7 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
             st.markdown(f'<div class="warning-box">⚠ Failed to apply {len(failed_filters)} filters: {", ".join(failed_filters)}</div>', unsafe_allow_html=True)
         
         # Show in tabs
-        tab1, tab2, tab3 = st.tabs(["Interactive Spectrum", "Filter Details", "Predictions"])
+        tab1, tab2 = st.tabs(["Interactive Spectrum", "Filter Details"])
         
         with tab1:
             # Main interactive graph
@@ -645,7 +486,7 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
         with tab2:
             # Details for each filter
             for result in filtered_results:
-                with st.expander(f"Filter: {result['name']} (from {result['parent_dir']})", expanded=True):
+                with st.expander(f"Filter: {result['name']} (from {result['filtered_data']['parent_dir']})", expanded=True):
                     col1, col2 = st.columns(2)
                     
                     with col1:
@@ -703,61 +544,6 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
                             key=f"download_{result['name']}",
                             use_container_width=True
                         )
-        
-        with tab3:
-            st.markdown("## Spectral Predictions")
-            st.markdown("Predict LogN and Tex values for filtered spectra")
-            
-            if not st.session_state.prediction_models:
-                st.warning("No prediction models found in the models directory")
-            else:
-                # Select filtered spectrum
-                filtered_options = [f"{res['name']} ({res['parent_dir']})" for res in filtered_results]
-                selected_filter = st.selectbox(
-                    "Select filtered spectrum for prediction",
-                    options=filtered_options,
-                    index=0
-                )
-                
-                # Get the selected result
-                selected_index = filtered_options.index(selected_filter)
-                selected_result = filtered_results[selected_index]
-                
-                # Select model
-                model_options = list(st.session_state.prediction_models.keys())
-                selected_model = st.selectbox(
-                    "Select prediction model",
-                    options=model_options,
-                    index=0 if model_options else None
-                )
-                
-                if st.button("Run Prediction"):
-                    with st.spinner("Processing spectrum and running prediction..."):
-                        # Process spectrum for prediction
-                        spectrum_data = process_spectrum_for_prediction(selected_result['output_path'])
-                        
-                        if spectrum_data is not None:
-                            # Get model data
-                            model_data = st.session_state.prediction_models[selected_model]
-                            
-                            # Make predictions
-                            tex_pred, logn_pred = predict_spectrum(spectrum_data, model_data)
-                            
-                            if tex_pred is not None and logn_pred is not None:
-                                st.success("Prediction completed successfully!")
-                                
-                                # Display results
-                                st.markdown("### Prediction Results")
-                                plot_prediction_results(tex_pred, logn_pred)
-                                
-                                # Show details
-                                with st.expander("Prediction Details"):
-                                    st.markdown(f"""
-                                    - **Selected Spectrum:** {selected_result['name']}
-                                    - **Model Used:** {selected_model}
-                                    - **Tex Predicted:** {tex_pred:.2f} K
-                                    - **LogN Predicted:** {logn_pred:.2f}
-                                    """)
     
     except Exception as e:
         st.markdown(f'<div class="error-box">❌ Processing error: {str(e)}</div>', unsafe_allow_html=True)
@@ -788,7 +574,6 @@ st.sidebar.markdown("""
 2. The system will automatically apply all filters
 3. View results in the interactive tabs
 4. Download filtered spectra as needed
-5. Use the Predictions tab to get LogN and Tex values
 
 **Supported formats:**
 - Text files (.txt, .dat)
