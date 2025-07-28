@@ -178,26 +178,6 @@ st.markdown("""
     .file-explorer-item:hover {
         background-color: #3d3d3d;
     }
-    
-    /* New styles for filter visualization */
-    .filter-container {
-        background-color: #1e1e1e;
-        border-radius: 8px;
-        padding: 15px;
-        margin-bottom: 15px;
-    }
-    .filter-header {
-        color: #1E88E5;
-        font-size: 1.2em;
-        margin-bottom: 10px;
-        border-bottom: 1px solid #3d3d3d;
-        padding-bottom: 5px;
-    }
-    .filter-subheader {
-        color: #FF9800;
-        font-size: 1em;
-        margin: 5px 0;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -530,7 +510,7 @@ input_file = st.sidebar.file_uploader(
 )
 
 # =============================================
-# FILTER PROCESSING AND VISUALIZATION
+# MAIN PROCESSING
 # =============================================
 if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FILTER_DIR:
     with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
@@ -553,15 +533,11 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
         if not filter_files:
             raise ValueError("No filter files found in the filters directory")
         
-        # Create directory for filtered spectra
-        filtered_dir = os.path.join(tempfile.gettempdir(), "filtered_spectra")
-        os.makedirs(filtered_dir, exist_ok=True)
-        
         # Process with all filters
         filtered_results = []
         failed_filters = []
         
-        with st.spinner("🔍 Applying filters and saving results..."):
+        with st.spinner("🔍 Applying filters..."):
             progress_bar = st.progress(0)
             status_text = st.empty()
             
@@ -572,11 +548,11 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
                 
                 result = apply_spectral_filter(input_freq, input_spec, filter_file)
                 if result is not None:
-                    # Save filtered result
+                    # Save filtered result temporarily
                     output_filename = f"filtered_{result['filter_name']}.txt"
-                    output_path = os.path.join(filtered_dir, output_filename)
+                    output_path = os.path.join(tempfile.gettempdir(), output_filename)
                     
-                    header = f"Frequency(GHz)\tIntensity(K)\n# Filter applied: {result['filter_name']}"
+                    header = f"!xValues(GHz)\tyValues(K)\n!Filter applied: {result['filter_name']}"
                     np.savetxt(
                         output_path,
                         np.column_stack((result['freq'], result['intensity'])),
@@ -591,8 +567,7 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
                         'original_freq': input_freq,
                         'original_intensity': input_spec,
                         'filtered_data': result,
-                        'output_path': output_path,
-                        'parent_dir': result['parent_dir']
+                        'output_path': output_path
                     })
                 else:
                     failed_filters.append(os.path.basename(filter_file))
@@ -609,11 +584,11 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
         if failed_filters:
             st.markdown(f'<div class="warning-box">⚠ Failed to apply {len(failed_filters)} filters: {", ".join(failed_filters)}</div>', unsafe_allow_html=True)
         
-        # Create tabs for visualization
-        tab1, tab2 = st.tabs(["Interactive Spectrum Explorer", "Filter Details"])
+        # Show in tabs
+        tab1, tab2 = st.tabs(["Interactive Spectrum", "Filter Details"])
         
         with tab1:
-            # Main interactive graph with all filters
+            # Main interactive graph
             fig_main = go.Figure()
             
             # Original spectrum
@@ -636,7 +611,7 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
                 )
             
             fig_main.update_layout(
-                title="Spectrum Filtering Results - All Filters",
+                title="Spectrum Filtering Results",
                 xaxis_title="Frequency (GHz)",
                 yaxis_title="Intensity (K)",
                 hovermode="x unified",
@@ -655,37 +630,27 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
             st.plotly_chart(fig_main, use_container_width=True)
         
         with tab2:
-            # Show details for each filter in expandable sections
+            # Details for each filter
             for result in filtered_results:
-                with st.expander(f"🔍 {result['name']} (from {result['parent_dir']})", expanded=True):
-                    st.markdown(f"""
-                    <div class="filter-container">
-                        <div class="filter-header">{result['name']}</div>
-                        <div class="filter-subheader">Filter Profile vs Filtered Spectrum</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
-                    # Create two columns for the plots
+                with st.expander(f"Filter: {result['name']} (from {result['filtered_data']['parent_dir']})", expanded=True):
                     col1, col2 = st.columns(2)
                     
                     with col1:
-                        # Filter profile plot
+                        # Filter profile
                         fig_filter = go.Figure()
                         fig_filter.add_trace(go.Scatter(
                             x=result['filtered_data']['freq'],
                             y=result['filtered_data']['filter_profile'],
                             mode='lines',
                             name='Filter Profile',
-                            line=dict(color='#1E88E5', width=2))
+                            line=dict(color='#1E88E5'))
                         )
                         fig_filter.update_layout(
                             title="Filter Profile",
-                            height=400,
+                            height=300,
                             plot_bgcolor='#0D0F14',
                             paper_bgcolor='#0D0F14',
-                            showlegend=False,
-                            margin=dict(l=20, r=20, t=40, b=20),
-                            font=dict(color='white')
+                            showlegend=False
                         )
                         st.plotly_chart(fig_filter, use_container_width=True)
                     
@@ -704,23 +669,21 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
                             y=result['filtered_data']['intensity'],
                             mode='lines',
                             name='Filtered',
-                            line=dict(color='#FF5722', width=2))
+                            line=dict(color='#FF5722', width=1))
                         )
                         fig_compare.update_layout(
                             title="Original vs Filtered",
-                            height=400,
+                            height=300,
                             plot_bgcolor='#0D0F14',
                             paper_bgcolor='#0D0F14',
-                            showlegend=False,
-                            margin=dict(l=20, r=20, t=40, b=20),
-                            font=dict(color='white')
+                            showlegend=False
                         )
                         st.plotly_chart(fig_compare, use_container_width=True)
                     
                     # Download button
                     with open(result['output_path'], 'rb') as f:
                         st.download_button(
-                            label=f"📥 Download {result['name']} filtered spectrum",
+                            label=f"Download {result['name']} filtered spectrum",
                             data=f,
                             file_name=os.path.basename(result['output_path']),
                             mime='text/plain',
