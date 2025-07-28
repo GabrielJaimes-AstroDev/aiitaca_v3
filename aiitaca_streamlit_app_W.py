@@ -9,6 +9,10 @@ from scipy.interpolate import interp1d
 from astropy.io import fits
 import shutil
 from glob import glob
+import pandas as pd
+import joblib
+from io import StringIO
+import warnings
 
 # =============================================
 # INITIALIZE SESSION STATE
@@ -18,6 +22,8 @@ if not hasattr(st.session_state, 'resources_downloaded'):
     st.session_state.MODEL_DIR = None
     st.session_state.FILTER_DIR = None
     st.session_state.downloaded_files = {'models': [], 'filters': []}
+    st.session_state.prediction_models_loaded = False
+    st.session_state.prediction_models = None
 
 # =============================================
 # PAGE CONFIGURATION
@@ -272,6 +278,177 @@ def display_file_explorer(files, title, file_type='models'):
                     </div>
                     """, unsafe_allow_html=True)
 
+def load_prediction_models(models_dir):
+    """Load the prediction models from the downloaded resources"""
+    try:
+        # Find model files
+        model_files = []
+        for root, _, files in os.walk(models_dir):
+            for file in files:
+                if file.endswith('.pkl'):
+                    model_files.append(os.path.join(root, file))
+        
+        if not model_files:
+            st.error("No se encontraron archivos de modelo (.pkl) en el directorio de modelos descargados")
+            return None
+        
+        # Load models
+        models = {}
+        for model_file in model_files:
+            model_name = os.path.basename(model_file)
+            if 'random_forest_tex' in model_name:
+                models['rf_tex'] = joblib.load(model_file)
+            elif 'random_forest_logn' in model_name:
+                models['rf_logn'] = joblib.load(model_file)
+            elif 'x_scaler' in model_name:
+                models['x_scaler'] = joblib.load(model_file)
+            elif 'tex_scaler' in model_name:
+                models['tex_scaler'] = joblib.load(model_file)
+            elif 'logn_scaler' in model_name:
+                models['logn_scaler'] = joblib.load(model_file)
+        
+        # Verify all required models are loaded
+        required_models = ['rf_tex', 'rf_logn', 'x_scaler', 'tex_scaler', 'logn_scaler']
+        if not all(m in models for m in required_models):
+            missing = [m for m in required_models if m not in models]
+            st.error(f"Faltan modelos requeridos: {', '.join(missing)}")
+            return None
+        
+        return models
+    except Exception as e:
+        st.error(f"Error cargando modelos de predicción: {str(e)}")
+        return None
+
+def process_spectrum_for_prediction(freq, intensity, interpolation_length=64610, min_required_points=1000):
+    """Process spectrum for prediction"""
+    try:
+        # Create a DataFrame from the input
+        data = pd.DataFrame({
+            'freq': freq,
+            'intensity': intensity
+        })
+        
+        # Clean data
+        data = data.replace([np.inf, -np.inf], np.nan).dropna()
+        
+        if len(data) < min_required_points:
+            st.error(f"Espectro tiene pocos puntos válidos ({len(data)})")
+            return None
+        
+        # Normalize frequency
+        min_freq = data['freq'].min()
+        max_freq = data['freq'].max()
+        freq_range = max_freq - min_freq
+        if freq_range == 0:
+            st.error("Rango de frecuencia cero en el espectro")
+            return None
+        
+        normalized_freq = (data['freq'] - min_freq) / freq_range
+        
+        # Interpolate
+        interp_func = interp1d(normalized_freq, data['intensity'], 
+                              kind='linear', bounds_error=False, 
+                              fill_value=(data['intensity'].iloc[0], data['intensity'].iloc[-1]))
+        new_freq = np.linspace(0, 1, interpolation_length)
+        interpolated_intensity = interp_func(new_freq).astype(np.float32)
+        
+        # Handle any remaining NaNs
+        if np.any(np.isnan(interpolated_intensity)):
+            nan_indices = np.where(np.isnan(interpolated_intensity))[0]
+            for idx in nan_indices:
+                left_idx = max(0, idx-1)
+                right_idx = min(interpolation_length-1, idx+1)
+                interpolated_intensity[idx] = np.mean(interpolated_intensity[[left_idx, right_idx]])
+        
+        # Normalize intensity
+        min_intensity = np.min(interpolated_intensity)
+        max_intensity = np.max(interpolated_intensity)
+        if max_intensity != min_intensity:
+            scaled_intensity = (interpolated_intensity - min_intensity) / (max_intensity - min_intensity)
+        else:
+            scaled_intensity = np.zeros_like(interpolated_intensity)
+        
+        return scaled_intensity
+    except Exception as e:
+        st.error(f"Error procesando espectro para predicción: {str(e)}")
+        return None
+
+def make_predictions(spectrum_data, models):
+    """Make predictions using loaded models"""
+    try:
+        # Scale the spectrum
+        scaled_spectrum = models['x_scaler'].transform([spectrum_data])
+        
+        # Make predictions
+        tex_pred_scaled = models['rf_tex'].predict(scaled_spectrum)
+        tex_pred = models['tex_scaler'].inverse_transform(tex_pred_scaled.reshape(-1, 1))[0,0]
+        
+        logn_pred_scaled = models['rf_logn'].predict(scaled_spectrum)
+        logn_pred = models['logn_scaler'].inverse_transform(logn_pred_scaled.reshape(-1, 1))[0,0]
+        
+        return tex_pred, logn_pred
+    except Exception as e:
+        st.error(f"Error realizando predicciones: {str(e)}")
+        return None, None
+
+def plot_prediction_results(tex_pred, logn_pred):
+    """Create plotly figure for prediction results"""
+    fig = go.Figure()
+    
+    # LogN plot
+    fig.add_trace(go.Scatter(
+        x=[18.1857],
+        y=[logn_pred],
+        mode='markers',
+        marker=dict(
+            color='red',
+            size=15,
+            line=dict(width=2, color='black')
+        ),
+        name='LogN predicho',
+        text=[f"Pred: {logn_pred:.2f}"],
+        hoverinfo='text',
+        xaxis='x1',
+        yaxis='y1'
+    ))
+    
+    # Tex plot
+    fig.add_trace(go.Scatter(
+        x=[203.492],
+        y=[tex_pred],
+        mode='markers',
+        marker=dict(
+            color='red',
+            size=15,
+            line=dict(width=2, color='black')
+        ),
+        name='Tex predicho',
+        text=[f"Pred: {tex_pred:.1f} K"],
+        hoverinfo='text',
+        xaxis='x2',
+        yaxis='y2'
+    ))
+    
+    # Update layout for subplots
+    fig.update_layout(
+        title='Resultados de Predicción',
+        grid=dict(rows=1, columns=2, pattern='independent'),
+        plot_bgcolor='#0D0F14',
+        paper_bgcolor='#0D0F14',
+        font=dict(color='white'),
+        height=400
+    )
+    
+    # Update xaxis properties for LogN plot
+    fig.update_xaxes(title_text='LogN de referencia', row=1, col=1)
+    fig.update_yaxes(title_text='LogN predicho', row=1, col=1)
+    
+    # Update xaxis properties for Tex plot
+    fig.update_xaxes(title_text='Tex de referencia (K)', row=1, col=2)
+    fig.update_yaxes(title_text='Tex predicho (K)', row=1, col=2)
+    
+    return fig
+
 # =============================================
 # HEADER
 # =============================================
@@ -439,7 +616,7 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
             st.markdown(f'<div class="warning-box">⚠ Failed to apply {len(failed_filters)} filters: {", ".join(failed_filters)}</div>', unsafe_allow_html=True)
         
         # Show in tabs
-        tab1, tab2 = st.tabs(["Interactive Spectrum", "Filter Details"])
+        tab1, tab2, tab3 = st.tabs(["Interactive Spectrum", "Filter Details", "Molecular Parameters Prediction"])
         
         with tab1:
             # Main interactive graph
@@ -544,6 +721,71 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
                             key=f"download_{result['name']}",
                             use_container_width=True
                         )
+        
+        with tab3:
+            st.markdown("## Molecular Parameters Prediction")
+            st.markdown("Predict LogN (column density) and Tex (excitation temperature) using machine learning models.")
+            
+            # Load prediction models if not already loaded
+            if not st.session_state.prediction_models_loaded:
+                with st.spinner("Loading prediction models..."):
+                    st.session_state.prediction_models = load_prediction_models(st.session_state.MODEL_DIR)
+                    st.session_state.prediction_models_loaded = True
+            
+            if st.session_state.prediction_models:
+                # Select which filtered spectrum to use for prediction
+                filter_options = [f"{res['name']} (from {res['filtered_data']['parent_dir']})" for res in filtered_results]
+                selected_filter = st.selectbox(
+                    "Select filtered spectrum for prediction:",
+                    options=filter_options,
+                    index=0
+                )
+                
+                selected_index = filter_options.index(selected_filter)
+                selected_result = filtered_results[selected_index]
+                
+                # Process spectrum for prediction
+                with st.spinner("Processing spectrum for prediction..."):
+                    processed_spectrum = process_spectrum_for_prediction(
+                        selected_result['filtered_data']['freq'],
+                        selected_result['filtered_data']['intensity']
+                    )
+                
+                if processed_spectrum is not None:
+                    # Make predictions
+                    with st.spinner("Making predictions..."):
+                        tex_pred, logn_pred = make_predictions(processed_spectrum, st.session_state.prediction_models)
+                    
+                    if tex_pred is not None and logn_pred is not None:
+                        st.success("Prediction completed successfully!")
+                        
+                        # Display results
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.metric(label="Predicted Excitation Temperature (Tex)", value=f"{tex_pred:.2f} K")
+                        with col2:
+                            st.metric(label="Predicted Column Density (LogN)", value=f"{logn_pred:.2f}")
+                        
+                        # Plot results
+                        st.plotly_chart(
+                            plot_prediction_results(tex_pred, logn_pred),
+                            use_container_width=True
+                        )
+                        
+                        # Show details
+                        with st.expander("Prediction Details"):
+                            st.markdown(f"""
+                            **Filter used:** {selected_result['name']}  
+                            **Source directory:** {selected_result['filtered_data']['parent_dir']}  
+                            **Number of points in spectrum:** {len(selected_result['filtered_data']['freq'])}  
+                            **Intensity range:** {np.min(selected_result['filtered_data']['intensity']):.2e} to {np.max(selected_result['filtered_data']['intensity']):.2e} K
+                            """)
+                    else:
+                        st.error("Failed to make predictions")
+                else:
+                    st.error("Failed to process spectrum for prediction")
+            else:
+                st.error("Prediction models could not be loaded")
     
     except Exception as e:
         st.markdown(f'<div class="error-box">❌ Processing error: {str(e)}</div>', unsafe_allow_html=True)
@@ -574,6 +816,7 @@ st.sidebar.markdown("""
 2. The system will automatically apply all filters
 3. View results in the interactive tabs
 4. Download filtered spectra as needed
+5. Predict molecular parameters in the Prediction tab
 
 **Supported formats:**
 - Text files (.txt, .dat)
