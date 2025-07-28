@@ -29,157 +29,11 @@ st.set_page_config(
 )
 
 # =============================================
-# CSS STYLES
+# CSS STYLES (from external file)
 # =============================================
-st.markdown("""
-<style>
-    /* General styles */
-    .stApp, .main .block-container, body {
-        background-color: #15181c !important;
-        font-family: 'Arial', sans-serif;
-    }
-    
-    /* Text and controls */
-    body, .stMarkdown, .stText, 
-    .stSlider [data-testid="stMarkdownContainer"],
-    .stSelectbox, .stNumberInput, .stTextInput,
-    .stTabs [data-baseweb="tab"] {
-        color: #FFFFFF !important;
-    }
-    
-    /* Sidebar */
-    [data-testid="stSidebar"] {
-        background-color: #FFFFFF !important;
-        border-right: 1px solid #e0e0e0;
-    }
-    [data-testid="stSidebar"] * {
-        color: #000000 !important;
-    }
-    
-    /* Buttons */
-    .stButton>button {
-        border: 2px solid #1E88E5 !important;
-        color: white !important;
-        background-color: #1E88E5 !important;
-        border-radius: 5px !important;
-        padding: 0.5rem 1rem !important;
-        transition: all 0.3s ease;
-    }
-    .stButton>button:hover {
-        background-color: #0D47A1 !important;
-        border-color: #0D47A1 !important;
-    }
-    
-    /* Titles */
-    h1, h2, h3, h4, h5, h6 {
-        color: #1E88E5 !important;
-        text-shadow: 1px 1px 2px rgba(0,0,0,0.3);
-    }
-    
-    /* Panels */
-    .description-panel {
-        background-color: white !important;
-        color: black !important;
-        padding: 20px;
-        border-radius: 10px;
-        margin: 15px 0;
-        border-left: 5px solid #1E88E5 !important;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-    }
-    
-    /* Graphs */
-    .plotly-graph-div {
-        background-color: #0D0F14 !important;
-        border-radius: 8px;
-    }
-    
-    /* File list */
-    .file-list {
-        background-color: #2d2d2d !important;
-        padding: 10px;
-        border-radius: 5px;
-        margin: 5px 0;
-        font-family: 'Courier New', monospace;
-        font-size: 0.9em;
-        overflow-x: auto;
-    }
-    
-    /* Status messages */
-    .success-box {
-        background-color: #4CAF50 !important;
-        color: white !important;
-        padding: 15px;
-        border-radius: 5px;
-        margin-bottom: 15px;
-    }
-    .warning-box {
-        background-color: #FF9800 !important;
-        color: white !important;
-        padding: 15px;
-        border-radius: 5px;
-        margin-bottom: 15px;
-    }
-    .error-box {
-        background-color: #F44336 !important;
-        color: white !important;
-        padding: 15px;
-        border-radius: 5px;
-        margin-bottom: 15px;
-    }
-    
-    /* Tabs */
-    .stTabs [aria-selected="true"] {
-        background-color: #1E88E5 !important;
-        color: white !important;
-    }
-    
-    /* Progress bar */
-    .stProgress > div > div > div {
-        background-color: #1E88E5 !important;
-    }
-    
-    /* Tree view for directories */
-    .tree-view {
-        font-family: 'Courier New', monospace;
-        font-size: 0.85em;
-        margin-left: 15px;
-    }
-    .tree-view .directory {
-        color: #1E88E5;
-        font-weight: bold;
-    }
-    .tree-view .file {
-        color: #4CAF50;
-    }
-    .tree-view .size {
-        color: #FF9800;
-        font-size: 0.8em;
-        margin-left: 10px;
-    }
-    
-    /* File explorer */
-    .file-explorer {
-        background-color: #2d2d2d;
-        padding: 10px;
-        border-radius: 5px;
-        margin-bottom: 15px;
-        max-height: 300px;
-        overflow-y: auto;
-    }
-    .file-explorer-header {
-        font-weight: bold;
-        margin-bottom: 5px;
-        color: #1E88E5;
-    }
-    .file-explorer-item {
-        padding: 3px 0;
-        border-bottom: 1px solid #3d3d3d;
-    }
-    .file-explorer-item:hover {
-        background-color: #3d3d3d;
-    }
-</style>
-""", unsafe_allow_html=True)
+with open('styles.txt', 'r') as f:
+    css_styles = f.read()
+st.markdown(f"<style>{css_styles}</style>", unsafe_allow_html=True)
 
 # =============================================
 # HELPER FUNCTIONS
@@ -274,8 +128,12 @@ def download_google_drive_folder(folder_url, output_dir):
 
 def download_resources():
     """Download all required resources"""
-    MODEL_FOLDER_URL = "https://drive.google.com/drive/folders/1drIyt-xaeWxmaMLxyuLJa2i7GtPn-hVe?usp=sharing"
-    FILTER_FOLDER_URL = "https://drive.google.com/drive/folders/1AwGL2yh5L0cf8wUzIe9QA8kij9ihYRCQ?usp=sharing"
+    # Load URLs from external file
+    with open('urls.txt', 'r') as f:
+        urls = f.read().splitlines()
+    
+    MODEL_FOLDER_URL = urls[0]  # First line is models URL
+    FILTER_FOLDER_URL = urls[1]  # Second line is filters URL
     
     MODEL_DIR = "downloaded_models"
     FILTER_DIR = "downloaded_filters"
@@ -427,14 +285,10 @@ with col2:
     st.markdown('<p class="main-title">AI-ITACA | Artificial Intelligence Integral Tool for AstroChemical Analysis</p>', unsafe_allow_html=True)
     st.markdown('<p class="subtitle">Molecular Spectrum Analyzer</p>', unsafe_allow_html=True)
 
-st.markdown("""
-<div class="description-panel">
-A remarkable upsurge in the complexity of molecules identified in the interstellar medium (ISM) is currently occurring, 
-with over 80 new species discovered in the last three years. A number of them have been emphasized by prebiotic 
-experiments as vital molecular building blocks of life. Since our Solar System was formed from a molecular cloud in the ISM, 
-it prompts the query as to whether the rich interstellar chemical reservoir could have played a role in the emergence of life.
-</div>
-""", unsafe_allow_html=True)
+# Load description from external file
+with open('description.txt', 'r') as f:
+    description_content = f.read()
+st.markdown(f"<div class='description-panel'>{description_content}</div>", unsafe_allow_html=True)
 
 # =============================================
 # MAIN INTERFACE
