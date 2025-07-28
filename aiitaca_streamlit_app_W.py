@@ -7,16 +7,16 @@ import gdown
 from scipy.interpolate import interp1d
 from astropy.io import fits
 import shutil
-from glob import glob
 
 # =============================================
 # INITIALIZE SESSION STATE
 # =============================================
-if not hasattr(st.session_state, 'resources_downloaded'):
+if 'resources_downloaded' not in st.session_state:
     st.session_state.resources_downloaded = False
     st.session_state.MODEL_DIR = None
     st.session_state.FILTER_DIR = None
     st.session_state.downloaded_files = {'models': [], 'filters': []}
+    st.session_state.initial_setup_complete = False
 
 # =============================================
 # PAGE CONFIGURATION
@@ -250,15 +250,25 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # =============================================
-# MAIN INTERFACE
+# RESOURCE DOWNLOAD AND INITIALIZATION
 # =============================================
-if not st.session_state.resources_downloaded:
-    st.session_state.MODEL_DIR, st.session_state.FILTER_DIR = download_resources()
-    if st.session_state.MODEL_DIR and st.session_state.FILTER_DIR:
-        st.session_state.downloaded_files['models'] = list_downloaded_files(st.session_state.MODEL_DIR)
-        st.session_state.downloaded_files['filters'] = list_downloaded_files(st.session_state.FILTER_DIR)
-        st.session_state.resources_downloaded = True
-        st.rerun()
+if not st.session_state.initial_setup_complete:
+    if not st.session_state.resources_downloaded:
+        with st.spinner("⚙️ Initializing application resources..."):
+            st.session_state.MODEL_DIR, st.session_state.FILTER_DIR = download_resources()
+            
+            if st.session_state.MODEL_DIR and st.session_state.FILTER_DIR:
+                try:
+                    st.session_state.downloaded_files['models'] = list_downloaded_files(st.session_state.MODEL_DIR)
+                    st.session_state.downloaded_files['filters'] = list_downloaded_files(st.session_state.FILTER_DIR)
+                    st.session_state.resources_downloaded = True
+                    st.session_state.initial_setup_complete = True
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Initialization error: {str(e)}")
+                    st.session_state.resources_downloaded = False
+    else:
+        st.session_state.initial_setup_complete = True
 
 # =============================================
 # SIDEBAR - CONFIGURATION
@@ -278,6 +288,8 @@ with st.sidebar:
     if st.button("🔄 Retry Download Resources"):
         st.session_state.MODEL_DIR, st.session_state.FILTER_DIR = download_resources()
         if st.session_state.MODEL_DIR and st.session_state.FILTER_DIR:
+            st.session_state.downloaded_files['models'] = list_downloaded_files(st.session_state.MODEL_DIR)
+            st.session_state.downloaded_files['filters'] = list_downloaded_files(st.session_state.FILTER_DIR)
             st.session_state.resources_downloaded = True
             st.rerun()
 
@@ -325,11 +337,26 @@ if input_file is not None and st.session_state.resources_downloaded:
                 progress_bar.progress((i + 1) / len(filter_files))
                 result = apply_spectral_filter(input_freq, input_spec, filter_file)
                 if result:
+                    # Create temporary output file
+                    output_filename = f"filtered_{result['filter_name']}.txt"
+                    output_path = os.path.join(tempfile.gettempdir(), output_filename)
+                    
+                    header = f"Frequency(GHz)\tIntensity(K)\n# Filter applied: {result['filter_name']}"
+                    np.savetxt(
+                        output_path,
+                        np.column_stack((result['freq'], result['intensity'])),
+                        header=header,
+                        delimiter='\t',
+                        fmt=['%.10f', '%.6e'],
+                        comments=''
+                    )
+                    
                     filtered_results.append({
                         'name': result['filter_name'],
                         'original_freq': input_freq,
                         'original_intensity': input_spec,
-                        'filtered_data': result
+                        'filtered_data': result,
+                        'output_path': output_path
                     })
                 else:
                     failed_filters.append(os.path.basename(filter_file))
@@ -373,7 +400,14 @@ if input_file is not None and st.session_state.resources_downloaded:
                 height=600,
                 plot_bgcolor='#0D0F14',
                 paper_bgcolor='#0D0F14',
-                font=dict(color='white')
+                font=dict(color='white'),
+                legend=dict(
+                    orientation="h",
+                    yanchor="bottom",
+                    y=1.02,
+                    xanchor="right",
+                    x=1
+                )
             )
             st.plotly_chart(fig_main, use_container_width=True)
         
@@ -392,7 +426,8 @@ if input_file is not None and st.session_state.resources_downloaded:
                         fig_filter.update_layout(
                             title="Filter Profile",
                             height=300,
-                            plot_bgcolor='#0D0F14'
+                            plot_bgcolor='#0D0F14',
+                            paper_bgcolor='#0D0F14'
                         )
                         st.plotly_chart(fig_filter, use_container_width=True)
                     
@@ -411,9 +446,21 @@ if input_file is not None and st.session_state.resources_downloaded:
                         fig_compare.update_layout(
                             title="Comparison",
                             height=300,
-                            plot_bgcolor='#0D0F14'
+                            plot_bgcolor='#0D0F14',
+                            paper_bgcolor='#0D0F14'
                         )
                         st.plotly_chart(fig_compare, use_container_width=True)
+                    
+                    # Download button
+                    with open(result['output_path'], 'rb') as f:
+                        st.download_button(
+                            label=f"📥 Download {result['name']} filtered spectrum",
+                            data=f,
+                            file_name=os.path.basename(result['output_path']),
+                            mime='text/plain',
+                            key=f"download_{result['name']}",
+                            use_container_width=True
+                        )
     
     except Exception as e:
         st.markdown(f'<div class="error-box">❌ Error: {str(e)}</div>', unsafe_allow_html=True)
