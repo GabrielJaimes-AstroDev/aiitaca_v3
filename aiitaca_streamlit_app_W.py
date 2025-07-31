@@ -536,7 +536,7 @@ def display_results():
                 x=1
             )
         )
-        st.plotly_chart(fig_main, use_container_width=True)
+        st.plotly_chart(fig_main, use_column_width=True)
     
     with tab2:
         if st.session_state.filtered_results:
@@ -560,7 +560,7 @@ def display_results():
                             paper_bgcolor='#0D0F14',
                             showlegend=False
                         )
-                        st.plotly_chart(fig_filter, use_container_width=True)
+                        st.plotly_chart(fig_filter, use_column_width=True)
                     
                     with col2:
                         fig_compare = go.Figure()
@@ -585,7 +585,7 @@ def display_results():
                             paper_bgcolor='#0D0F14',
                             showlegend=False
                         )
-                        st.plotly_chart(fig_compare, use_container_width=True)
+                        st.plotly_chart(fig_compare, use_column_width=True)
                     
                     with open(result['output_path'], 'rb') as f:
                         st.download_button(
@@ -594,7 +594,7 @@ def display_results():
                             file_name=os.path.basename(result['output_path']),
                             mime='text/plain',
                             key=f"download_{result['name']}",
-                            use_container_width=True
+                            use_column_width=True
                         )
         else:
             st.info("No filters were applied to this spectrum")
@@ -644,7 +644,7 @@ def display_results():
                     
                     st.plotly_chart(
                         plot_prediction_results(tex_pred, logn_pred),
-                        use_container_width=True
+                        use_column_width=True
                     )
                     
                     with st.expander("Prediction Details"):
