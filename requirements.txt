@@ -1,5 +1,5 @@
 streamlit==1.22.0
-numpy==2.3
+numpy==2.2.6
 matplotlib==3.7.0
 plotly==5.15.0
 tensorflow==2.15.0
