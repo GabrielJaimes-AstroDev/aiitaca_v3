@@ -18,7 +18,7 @@ import matplotlib.pyplot as plt
 # CONFIGURACIÓN DE PATHS LOCALES
 # =============================================
 # Configura estas rutas según tu estructura de directorios
-LOCAL_MODEL_DIR = "RF_Models/1.ML_Performance_RDF_CH3OCHO_Noisy_Weight3_Sigma0_001_T1"
+LOCAL_MODEL_DIR = "RF_Models/1.ML_Performance_RDF_CH3OCHO_woNOISE_Weight3_T1"
 LOCAL_FILTER_DIR = "RF_Filters"
 
 # =============================================
