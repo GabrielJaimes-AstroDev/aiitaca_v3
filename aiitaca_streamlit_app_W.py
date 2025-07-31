@@ -62,7 +62,7 @@ def initialize_session_state():
     """Inicializa todas las variables de estado necesarias"""
     if 'resources_downloaded' not in st.session_state:
         st.session_state.resources_downloaded = False
-        st.session_state.MODEL_DIR = "/RF_Models/"  # Ruta local a los modelos
+        st.session_state.MODEL_DIR = "RF_Models/1.ML_Performance_RDF_CH3OCHO_Noisy_Weight3_Sigma0_0001_T1"  # Ruta relativa ajustada
         st.session_state.FILTER_DIR = None
         st.session_state.downloaded_files = {'models': [], 'filters': []}
         st.session_state.prediction_models_loaded = False
@@ -235,27 +235,22 @@ def load_prediction_models(models_dir):
     try:
         # Verificar estructura de directorios
         if not os.path.exists(models_dir):
-            st.error(f"Models directory not found: {models_dir}")
+            st.error(f"Models directory not found: {os.path.abspath(models_dir)}")
+            st.error(f"Current working directory: {os.getcwd()}")
+            st.error(f"Directory contents: {os.listdir()}")
             return None
         
-        # Buscar archivos de modelos
-        model_files = {}
-        for root, _, files in os.walk(models_dir):
-            for file in files:
-                if file.endswith('.pkl'):
-                    model_name = file.split('.')[0]
-                    model_files[model_name] = os.path.join(root, file)
+        # Modelos requeridos con sus rutas exactas
+        model_files = {
+            'random_forest_tex': os.path.join(models_dir, 'random_forest_tex.pkl'),
+            'random_forest_logn': os.path.join(models_dir, 'random_forest_logn.pkl'),
+            'x_scaler': os.path.join(models_dir, 'x_scaler.pkl'),
+            'tex_scaler': os.path.join(models_dir, 'tex_scaler.pkl'),
+            'logn_scaler': os.path.join(models_dir, 'logn_scaler.pkl')
+        }
         
-        # Verificar modelos requeridos
-        required_models = [
-            'random_forest_tex',
-            'random_forest_logn',
-            'x_scaler',
-            'tex_scaler',
-            'logn_scaler'
-        ]
-        
-        missing_models = [m for m in required_models if m not in model_files]
+        # Verificar que todos los archivos existan
+        missing_models = [name for name, path in model_files.items() if not os.path.exists(path)]
         if missing_models:
             st.error(f"Missing model files: {', '.join(missing_models)}")
             return None
@@ -396,7 +391,13 @@ def ensure_resources_downloaded():
     """Asegura que los recursos se descarguen solo una vez"""
     if not st.session_state.models_downloaded:
         with st.spinner("🔄 Loading local models..."):
-            # Solo cargamos los modelos locales, no descargamos nada
+            # Verificar si el directorio existe
+            if not os.path.exists(st.session_state.MODEL_DIR):
+                st.error(f"Model directory not found at: {os.path.abspath(st.session_state.MODEL_DIR)}")
+                st.error(f"Current working directory: {os.getcwd()}")
+                st.error(f"Directory contents: {os.listdir()}")
+                return
+            
             st.session_state.downloaded_files['models'] = list_downloaded_files(st.session_state.MODEL_DIR)
             
             if st.session_state.downloaded_files['models']:
@@ -404,7 +405,7 @@ def ensure_resources_downloaded():
                 st.session_state.models_downloaded = True
                 st.success("Local models loaded successfully!")
             else:
-                st.error("Failed to load local models. Please check the model directory path.")
+                st.error("No model files found in the specified directory.")
 
 def process_uploaded_file(input_file):
     """Procesa el archivo subido y almacena los resultados en session_state"""
@@ -691,7 +692,7 @@ with st.sidebar:
     
     if st.session_state.MODEL_DIR and os.path.exists(st.session_state.MODEL_DIR):
         st.subheader("Models Directory")
-        st.code(f"{st.session_state.MODEL_DIR}", language="bash")
+        st.code(f"{os.path.abspath(st.session_state.MODEL_DIR)}", language="bash")
         
         if st.session_state.downloaded_files['models']:
             st.markdown("**Model files:**")
@@ -705,7 +706,7 @@ with st.sidebar:
     
     if st.session_state.FILTER_DIR and os.path.exists(st.session_state.FILTER_DIR):
         st.subheader("Filters Directory")
-        st.code(f"{st.session_state.FILTER_DIR}", language="bash")
+        st.code(f"{os.path.abspath(st.session_state.FILTER_DIR)}", language="bash")
         
         if st.session_state.downloaded_files['filters']:
             st.markdown("**Filter files:**")
