@@ -80,33 +80,6 @@ def get_file_size(path):
         size /= 1024.0
     return f"{size:.1f} TB"
 
-def display_directory_tree(directory, max_depth=3, current_depth=0):
-    """Display directory structure as a tree"""
-    if not os.path.exists(directory):
-        return f"<div class='error-box'>Directory not found: {directory}</div>"
-    
-    tree_html = "<div class='tree-view'>"
-    
-    try:
-        items = sorted(os.listdir(directory))
-        for item in items:
-            if item.startswith('.'):  # Ignore hidden files
-                continue
-                
-            full_path = os.path.join(directory, item)
-            if os.path.isdir(full_path):
-                tree_html += f"<div class='directory'>📁 {item}</div>"
-                if current_depth < max_depth:
-                    tree_html += display_directory_tree(full_path, max_depth, current_depth+1)
-            else:
-                size = get_file_size(full_path)
-                tree_html += f"<div class='file'>📄 {item} <span class='size'>{size}</span></div>"
-    except Exception as e:
-        tree_html += f"<div class='error-box'>Error reading directory: {str(e)}</div>"
-    
-    tree_html += "</div>"
-    return tree_html
-
 def download_google_drive_folder(folder_url, output_dir):
     """Recursively download all content from a Google Drive folder"""
     try:
@@ -248,30 +221,6 @@ def apply_spectral_filter(spectrum_freq, spectrum_intensity, filter_path):
         st.error(f"Error applying filter {os.path.basename(filter_path)}: {str(e)}")
         return None
 
-def display_file_explorer(files, title, file_type='models'):
-    """Display an interactive file explorer"""
-    st.markdown(f"<div class='file-explorer-header'>{title}</div>", unsafe_allow_html=True)
-    
-    # Group files by directory
-    dir_structure = {}
-    for file in files:
-        dir_name = file['parent_dir']
-        if dir_name not in dir_structure:
-            dir_structure[dir_name] = []
-        dir_structure[dir_name].append(file)
-    
-    # Display as expandable sections
-    with st.container():
-        for dir_name, dir_files in dir_structure.items():
-            with st.expander(f"📁 {dir_name}", expanded=False):
-                for file in dir_files:
-                    st.markdown(f"""
-                    <div class='file-explorer-item'>
-                        <b>{os.path.basename(file['path'])}</b>
-                        <span style='float: right; color: #FF9800;'>{file['size']}</span>
-                    </div>
-                    """, unsafe_allow_html=True)
-
 # =============================================
 # HEADER
 # =============================================
@@ -320,30 +269,24 @@ with st.sidebar:
         st.subheader("Models Directory")
         st.code(f"./{st.session_state.MODEL_DIR}", language="bash")
         
-        # Display model files in a compact way
-        if st.session_state.downloaded_files['models']:
-            st.markdown("**Model files:**")
-            model_files_text = "\n".join(
-                f"- {file['path']} ({file['size']})" 
-                for file in st.session_state.downloaded_files['models']
-            )
-            st.text_area("Model files list", value=model_files_text, height=150, label_visibility="collapsed")
+        model_files = glob(os.path.join(st.session_state.MODEL_DIR, '**', '*.*'), recursive=True)
+        if model_files:
+            st.markdown(f"**Total models:** {len(model_files)}")
         else:
             st.warning("No model files found")
     
-    # Filters section
+    # Filters section - Improved display
     if st.session_state.FILTER_DIR and os.path.exists(st.session_state.FILTER_DIR):
         st.subheader("Filters Directory")
         st.code(f"./{st.session_state.FILTER_DIR}", language="bash")
         
-        # Display filter files in a compact way
-        if st.session_state.downloaded_files['filters']:
-            st.markdown("**Filter files:**")
-            filter_files_text = "\n".join(
-                f"- {file['path']} ({file['size']})" 
-                for file in st.session_state.downloaded_files['filters']
-            )
-            st.text_area("Filter files list", value=filter_files_text, height=150, label_visibility="collapsed")
+        filter_files = glob(os.path.join(st.session_state.FILTER_DIR, '**', '*.txt'), recursive=True)
+        if filter_files:
+            st.markdown(f"**Total filters:** {len(filter_files)}")
+            # Show first 5 filters as example
+            st.markdown("**Example filters:**")
+            for i, f in enumerate(filter_files[:5]):
+                st.code(os.path.relpath(f, st.session_state.FILTER_DIR))
         else:
             st.warning("No filter files found")
 
@@ -364,7 +307,7 @@ input_file = st.sidebar.file_uploader(
 )
 
 # =============================================
-# MAIN PROCESSING
+# MAIN PROCESSING - SIMPLIFIED FILTERING ONLY
 # =============================================
 if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FILTER_DIR:
     with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
@@ -378,11 +321,7 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
             raise ValueError("Could not read the spectrum file")
         
         # Get all filter files
-        filter_files = []
-        for root, _, files in os.walk(st.session_state.FILTER_DIR):
-            for file in files:
-                if file.endswith('.txt'):
-                    filter_files.append(os.path.join(root, file))
+        filter_files = glob(os.path.join(st.session_state.FILTER_DIR, '**', '*.txt'), recursive=True)
         
         if not filter_files:
             raise ValueError("No filter files found in the filters directory")
@@ -402,26 +341,11 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
                 
                 result = apply_spectral_filter(input_freq, input_spec, filter_file)
                 if result is not None:
-                    # Save filtered result temporarily
-                    output_filename = f"filtered_{result['filter_name']}.txt"
-                    output_path = os.path.join(tempfile.gettempdir(), output_filename)
-                    
-                    header = f"!xValues(GHz)\tyValues(K)\n!Filter applied: {result['filter_name']}"
-                    np.savetxt(
-                        output_path,
-                        np.column_stack((result['freq'], result['intensity'])),
-                        header=header,
-                        delimiter='\t',
-                        fmt=['%.10f', '%.6e'],
-                        comments=''
-                    )
-                    
                     filtered_results.append({
                         'name': result['filter_name'],
                         'original_freq': input_freq,
                         'original_intensity': input_spec,
-                        'filtered_data': result,
-                        'output_path': output_path
+                        'filtered_data': result
                     })
                 else:
                     failed_filters.append(os.path.basename(filter_file))
@@ -436,114 +360,48 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
         st.markdown(f'<div class="success-box">✅ Successfully applied {len(filtered_results)} filters</div>', unsafe_allow_html=True)
         
         if failed_filters:
-            st.markdown(f'<div class="warning-box">⚠ Failed to apply {len(failed_filters)} filters: {", ".join(failed_filters)}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="warning-box">⚠ Failed to apply {len(failed_filters)} filters</div>', unsafe_allow_html=True)
         
-        # Show in tabs
-        tab1, tab2 = st.tabs(["Interactive Spectrum", "Filter Details"])
+        # Main interactive graph
+        fig_main = go.Figure()
         
-        with tab1:
-            # Main interactive graph
-            fig_main = go.Figure()
-            
-            # Original spectrum
+        # Original spectrum
+        fig_main.add_trace(go.Scatter(
+            x=input_freq,
+            y=input_spec,
+            mode='lines',
+            name='Original Spectrum',
+            line=dict(color='white', width=2))
+        )
+        
+        # Add all filtered spectra
+        for result in filtered_results:
             fig_main.add_trace(go.Scatter(
-                x=input_freq,
-                y=input_spec,
+                x=result['filtered_data']['freq'],
+                y=result['filtered_data']['intensity'],
                 mode='lines',
-                name='Original Spectrum',
-                line=dict(color='white', width=2))
+                name=f"Filtered: {result['name']}",
+                line=dict(width=1.5))
             )
-            
-            # Add all filtered spectra
-            for result in filtered_results:
-                fig_main.add_trace(go.Scatter(
-                    x=result['filtered_data']['freq'],
-                    y=result['filtered_data']['intensity'],
-                    mode='lines',
-                    name=f"Filtered: {result['name']}",
-                    line=dict(width=1.5))
-                )
-            
-            fig_main.update_layout(
-                title="Spectrum Filtering Results",
-                xaxis_title="Frequency (GHz)",
-                yaxis_title="Intensity (K)",
-                hovermode="x unified",
-                height=600,
-                plot_bgcolor='#0D0F14',
-                paper_bgcolor='#0D0F14',
-                font=dict(color='white'),
-                legend=dict(
-                    orientation="h",
-                    yanchor="bottom",
-                    y=1.02,
-                    xanchor="right",
-                    x=1
-                )
-            )
-            st.plotly_chart(fig_main, use_container_width=True)
         
-        with tab2:
-            # Details for each filter
-            for result in filtered_results:
-                with st.expander(f"Filter: {result['name']} (from {result['filtered_data']['parent_dir']})", expanded=True):
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        # Filter profile
-                        fig_filter = go.Figure()
-                        fig_filter.add_trace(go.Scatter(
-                            x=result['filtered_data']['freq'],
-                            y=result['filtered_data']['filter_profile'],
-                            mode='lines',
-                            name='Filter Profile',
-                            line=dict(color='#1E88E5'))
-                        )
-                        fig_filter.update_layout(
-                            title="Filter Profile",
-                            height=300,
-                            plot_bgcolor='#0D0F14',
-                            paper_bgcolor='#0D0F14',
-                            showlegend=False
-                        )
-                        st.plotly_chart(fig_filter, use_container_width=True)
-                    
-                    with col2:
-                        # Original vs filtered comparison
-                        fig_compare = go.Figure()
-                        fig_compare.add_trace(go.Scatter(
-                            x=result['original_freq'],
-                            y=result['original_intensity'],
-                            mode='lines',
-                            name='Original',
-                            line=dict(color='white', width=1))
-                        )
-                        fig_compare.add_trace(go.Scatter(
-                            x=result['filtered_data']['freq'],
-                            y=result['filtered_data']['intensity'],
-                            mode='lines',
-                            name='Filtered',
-                            line=dict(color='#FF5722', width=1))
-                        )
-                        fig_compare.update_layout(
-                            title="Original vs Filtered",
-                            height=300,
-                            plot_bgcolor='#0D0F14',
-                            paper_bgcolor='#0D0F14',
-                            showlegend=False
-                        )
-                        st.plotly_chart(fig_compare, use_container_width=True)
-                    
-                    # Download button
-                    with open(result['output_path'], 'rb') as f:
-                        st.download_button(
-                            label=f"Download {result['name']} filtered spectrum",
-                            data=f,
-                            file_name=os.path.basename(result['output_path']),
-                            mime='text/plain',
-                            key=f"download_{result['name']}",
-                            use_container_width=True
-                        )
+        fig_main.update_layout(
+            title="Spectrum Filtering Results",
+            xaxis_title="Frequency (GHz)",
+            yaxis_title="Intensity (K)",
+            hovermode="x unified",
+            height=600,
+            plot_bgcolor='#0D0F14',
+            paper_bgcolor='#0D0F14',
+            font=dict(color='white'),
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
+            )
+        )
+        st.plotly_chart(fig_main, use_container_width=True)
     
     except Exception as e:
         st.markdown(f'<div class="error-box">❌ Processing error: {str(e)}</div>', unsafe_allow_html=True)
@@ -572,8 +430,8 @@ st.sidebar.markdown("""
 **Instructions:**
 1. Upload your spectrum file
 2. The system will automatically apply all filters
-3. View results in the interactive tabs
-4. Download filtered spectra as needed
+3. View results in the interactive graph
+4. Compare original vs filtered spectra
 
 **Supported formats:**
 - Text files (.txt, .dat)
