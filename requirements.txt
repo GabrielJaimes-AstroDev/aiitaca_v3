@@ -1,8 +1,8 @@
 # Core packages
-numpy==1.26.0              # Updated for joblib model compatibility (numpy._core)
+numpy==2.1.3              # Updated for joblib model compatibility (numpy._core)
 scipy==1.10.1              # Compatible with numpy 1.26.x
-scikit-learn==1.3.2        # Compatible with numpy 1.26.x
-joblib==1.3.2              # Stable version for scikit-learn 1.3.x
+scikit-learn==1.7.0        # Compatible with numpy 1.26.x
+joblib==1.4.2              # Stable version for scikit-learn 1.3.x
 pandas==2.0.3              # Compatible with numpy 1.26.x
 
 # Visualization
@@ -16,6 +16,6 @@ astropy==5.3.4             # Compatible with numpy 1.26.x
 streamlit==1.32.0          # Compatible with all the above
 
 # Utilities
-python-dateutil==2.8.2     # Required by pandas
+python-dateutil==3.12.4     # Required by pandas
 pytz==2023.3               # Required for timezone handling
 typing-extensions==4.7.1   # Required by various dependencies
