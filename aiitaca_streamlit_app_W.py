@@ -3,7 +3,6 @@ import os
 import numpy as np
 import tempfile
 import plotly.graph_objects as go
-import gdown
 import time
 from scipy.interpolate import interp1d
 from astropy.io import fits
@@ -63,7 +62,7 @@ def initialize_session_state():
     """Inicializa todas las variables de estado necesarias"""
     if 'resources_downloaded' not in st.session_state:
         st.session_state.resources_downloaded = False
-        st.session_state.MODEL_DIR = None
+        st.session_state.MODEL_DIR = "/RF_Models"  # Ruta local a los modelos
         st.session_state.FILTER_DIR = None
         st.session_state.downloaded_files = {'models': [], 'filters': []}
         st.session_state.prediction_models_loaded = False
@@ -147,50 +146,6 @@ def get_file_size(path):
             return f"{size:.1f} {unit}"
         size /= 1024.0
     return f"{size:.1f} TB"
-
-def download_google_drive_folder(folder_url, output_dir):
-    """Descarga recursivamente contenido de Google Drive"""
-    try:
-        folder_id = folder_url.split('folders/')[-1].split('?')[0]
-        shutil.rmtree(output_dir, ignore_errors=True)
-        os.makedirs(output_dir, exist_ok=True)
-        
-        gdown.download_folder(
-            id=folder_id,
-            output=output_dir,
-            quiet=True,
-            use_cookies=False,
-            remaining_ok=True
-        )
-        return True
-    except Exception as e:
-        st.error(f"Error downloading folder: {str(e)}")
-        return False
-
-def download_resources():
-    """Descarga todos los recursos requeridos"""
-    try:
-        with open('urls.txt', 'r') as f:
-            urls = f.read().splitlines()
-        
-        MODEL_FOLDER_URL = urls[0]
-        FILTER_FOLDER_URL = urls[1]
-        
-        MODEL_DIR = "downloaded_models"
-        FILTER_DIR = "downloaded_filters"
-        
-        # Descargar modelos
-        if not download_google_drive_folder(MODEL_FOLDER_URL, MODEL_DIR):
-            return None, None
-        
-        # Descargar filtros
-        if not download_google_drive_folder(FILTER_FOLDER_URL, FILTER_DIR):
-            return None, None
-        
-        return MODEL_DIR, FILTER_DIR
-    except Exception as e:
-        st.error(f"Error downloading resources: {str(e)}")
-        return None, None
 
 def robust_read_file(file_path):
     """Lee archivos de espectro o filtros con manejo robusto"""
@@ -440,19 +395,16 @@ def plot_prediction_results(tex_pred, logn_pred):
 def ensure_resources_downloaded():
     """Asegura que los recursos se descarguen solo una vez"""
     if not st.session_state.models_downloaded:
-        with st.spinner("🔽 Downloading resources for the first time (this may take several minutes)..."):
-            st.session_state.MODEL_DIR, st.session_state.FILTER_DIR = download_resources()
-            if st.session_state.MODEL_DIR and st.session_state.FILTER_DIR:
-                try:
-                    st.session_state.downloaded_files['models'] = list_downloaded_files(st.session_state.MODEL_DIR)
-                    st.session_state.downloaded_files['filters'] = list_downloaded_files(st.session_state.FILTER_DIR)
-                    st.session_state.resources_downloaded = True
-                    st.session_state.models_downloaded = True
-                except Exception as e:
-                    st.error(f"Error processing downloaded files: {str(e)}")
-                    st.session_state.resources_downloaded = False
+        with st.spinner("🔄 Loading local models..."):
+            # Solo cargamos los modelos locales, no descargamos nada
+            st.session_state.downloaded_files['models'] = list_downloaded_files(st.session_state.MODEL_DIR)
+            
+            if st.session_state.downloaded_files['models']:
+                st.session_state.resources_downloaded = True
+                st.session_state.models_downloaded = True
+                st.success("Local models loaded successfully!")
             else:
-                st.error("Failed to download required resources")
+                st.error("Failed to load local models. Please check the model directory path.")
 
 def process_uploaded_file(input_file):
     """Procesa el archivo subido y almacena los resultados en session_state"""
@@ -474,56 +426,52 @@ def process_uploaded_file(input_file):
         
         st.session_state.spectrum_data = (input_freq, input_spec)
         
-        # Obtener lista de filtros
+        # Obtener lista de filtros (si existen)
         filter_files = []
-        for root, _, files in os.walk(st.session_state.FILTER_DIR):
-            for file in files:
-                if file.endswith('.txt'):
-                    filter_files.append(os.path.join(root, file))
+        if st.session_state.FILTER_DIR and os.path.exists(st.session_state.FILTER_DIR):
+            for root, _, files in os.walk(st.session_state.FILTER_DIR):
+                for file in files:
+                    if file.endswith('.txt'):
+                        filter_files.append(os.path.join(root, file))
         
-        if not filter_files:
-            raise ValueError("No filter files found in the filters directory")
-        
-        # Aplicar filtros
-        with st.spinner("🔍 Applying filters..."):
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            
-            for i, filter_file in enumerate(filter_files):
-                filter_name = os.path.splitext(os.path.basename(filter_file))[0]
-                status_text.text(f"Processing filter {i+1}/{len(filter_files)}: {filter_name}")
-                progress_bar.progress((i + 1) / len(filter_files))
+        # Aplicar filtros si existen
+        if filter_files:
+            with st.spinner("🔍 Applying filters..."):
+                progress_bar = st.progress(0)
+                status_text = st.empty()
                 
-                result = apply_spectral_filter(input_freq, input_spec, filter_file)
-                if result is not None:
-                    output_filename = f"filtered_{result['filter_name']}.txt"
-                    output_path = os.path.join(tempfile.gettempdir(), output_filename)
+                for i, filter_file in enumerate(filter_files):
+                    filter_name = os.path.splitext(os.path.basename(filter_file))[0]
+                    status_text.text(f"Processing filter {i+1}/{len(filter_files)}: {filter_name}")
+                    progress_bar.progress((i + 1) / len(filter_files))
                     
-                    header = f"!xValues(GHz)\tyValues(K)\n!Filter applied: {result['filter_name']}"
-                    np.savetxt(
-                        output_path,
-                        np.column_stack((result['freq'], result['intensity'])),
-                        header=header,
-                        delimiter='\t',
-                        fmt=['%.10f', '%.6e'],
-                        comments=''
-                    )
-                    
-                    st.session_state.filtered_results.append({
-                        'name': result['filter_name'],
-                        'original_freq': input_freq,
-                        'original_intensity': input_spec,
-                        'filtered_data': result,
-                        'output_path': output_path
-                    })
-                else:
-                    st.session_state.failed_filters.append(os.path.basename(filter_file))
-            
-            progress_bar.empty()
-            status_text.empty()
-        
-        if not st.session_state.filtered_results:
-            raise ValueError(f"No filters were successfully applied. {len(st.session_state.failed_filters)} filters failed.")
+                    result = apply_spectral_filter(input_freq, input_spec, filter_file)
+                    if result is not None:
+                        output_filename = f"filtered_{result['filter_name']}.txt"
+                        output_path = os.path.join(tempfile.gettempdir(), output_filename)
+                        
+                        header = f"!xValues(GHz)\tyValues(K)\n!Filter applied: {result['filter_name']}"
+                        np.savetxt(
+                            output_path,
+                            np.column_stack((result['freq'], result['intensity'])),
+                            header=header,
+                            delimiter='\t',
+                            fmt=['%.10f', '%.6e'],
+                            comments=''
+                        )
+                        
+                        st.session_state.filtered_results.append({
+                            'name': result['filter_name'],
+                            'original_freq': input_freq,
+                            'original_intensity': input_spec,
+                            'filtered_data': result,
+                            'output_path': output_path
+                        })
+                    else:
+                        st.session_state.failed_filters.append(os.path.basename(filter_file))
+                
+                progress_bar.empty()
+                status_text.empty()
         
         st.session_state.file_processed = True
         
@@ -536,11 +484,14 @@ def process_uploaded_file(input_file):
 
 def display_results():
     """Muestra los resultados del procesamiento"""
-    if not st.session_state.file_processed or not st.session_state.filtered_results:
+    if not st.session_state.file_processed:
         st.warning("No hay resultados para mostrar")
         return
     
-    st.markdown(f'<div class="success-box">✅ Successfully applied {len(st.session_state.filtered_results)} filters</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="success-box">✅ Spectrum processed successfully</div>', unsafe_allow_html=True)
+    
+    if st.session_state.filtered_results:
+        st.markdown(f'<div class="success-box">✅ Successfully applied {len(st.session_state.filtered_results)} filters</div>', unsafe_allow_html=True)
     
     if st.session_state.failed_filters:
         st.markdown(f'<div class="warning-box">⚠ Failed to apply {len(st.session_state.failed_filters)} filters: {", ".join(st.session_state.failed_filters)}</div>', unsafe_allow_html=True)
@@ -587,87 +538,95 @@ def display_results():
         st.plotly_chart(fig_main, use_container_width=True)
     
     with tab2:
-        for result in st.session_state.filtered_results:
-            with st.expander(f"Filter: {result['name']} (from {result['filtered_data']['parent_dir']})", expanded=True):
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    fig_filter = go.Figure()
-                    fig_filter.add_trace(go.Scatter(
-                        x=result['filtered_data']['freq'],
-                        y=result['filtered_data']['filter_profile'],
-                        mode='lines',
-                        name='Filter Profile',
-                        line=dict(color='#1E88E5'))
-                    )
-                    fig_filter.update_layout(
-                        title="Filter Profile",
-                        height=300,
-                        plot_bgcolor='#0D0F14',
-                        paper_bgcolor='#0D0F14',
-                        showlegend=False
-                    )
-                    st.plotly_chart(fig_filter, use_container_width=True)
-                
-                with col2:
-                    fig_compare = go.Figure()
-                    fig_compare.add_trace(go.Scatter(
-                        x=result['original_freq'],
-                        y=result['original_intensity'],
-                        mode='lines',
-                        name='Original',
-                        line=dict(color='white', width=1))
-                    )
-                    fig_compare.add_trace(go.Scatter(
-                        x=result['filtered_data']['freq'],
-                        y=result['filtered_data']['intensity'],
-                        mode='lines',
-                        name='Filtered',
-                        line=dict(color='#FF5722', width=1))
-                    )
-                    fig_compare.update_layout(
-                        title="Original vs Filtered",
-                        height=300,
-                        plot_bgcolor='#0D0F14',
-                        paper_bgcolor='#0D0F14',
-                        showlegend=False
-                    )
-                    st.plotly_chart(fig_compare, use_container_width=True)
-                
-                with open(result['output_path'], 'rb') as f:
-                    st.download_button(
-                        label=f"Download {result['name']} filtered spectrum",
-                        data=f,
-                        file_name=os.path.basename(result['output_path']),
-                        mime='text/plain',
-                        key=f"download_{result['name']}",
-                        use_container_width=True
-                    )
+        if st.session_state.filtered_results:
+            for result in st.session_state.filtered_results:
+                with st.expander(f"Filter: {result['name']} (from {result['filtered_data']['parent_dir']})", expanded=True):
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        fig_filter = go.Figure()
+                        fig_filter.add_trace(go.Scatter(
+                            x=result['filtered_data']['freq'],
+                            y=result['filtered_data']['filter_profile'],
+                            mode='lines',
+                            name='Filter Profile',
+                            line=dict(color='#1E88E5'))
+                        )
+                        fig_filter.update_layout(
+                            title="Filter Profile",
+                            height=300,
+                            plot_bgcolor='#0D0F14',
+                            paper_bgcolor='#0D0F14',
+                            showlegend=False
+                        )
+                        st.plotly_chart(fig_filter, use_container_width=True)
+                    
+                    with col2:
+                        fig_compare = go.Figure()
+                        fig_compare.add_trace(go.Scatter(
+                            x=result['original_freq'],
+                            y=result['original_intensity'],
+                            mode='lines',
+                            name='Original',
+                            line=dict(color='white', width=1))
+                        )
+                        fig_compare.add_trace(go.Scatter(
+                            x=result['filtered_data']['freq'],
+                            y=result['filtered_data']['intensity'],
+                            mode='lines',
+                            name='Filtered',
+                            line=dict(color='#FF5722', width=1))
+                        )
+                        fig_compare.update_layout(
+                            title="Original vs Filtered",
+                            height=300,
+                            plot_bgcolor='#0D0F14',
+                            paper_bgcolor='#0D0F14',
+                            showlegend=False
+                        )
+                        st.plotly_chart(fig_compare, use_container_width=True)
+                    
+                    with open(result['output_path'], 'rb') as f:
+                        st.download_button(
+                            label=f"Download {result['name']} filtered spectrum",
+                            data=f,
+                            file_name=os.path.basename(result['output_path']),
+                            mime='text/plain',
+                            key=f"download_{result['name']}",
+                            use_container_width=True
+                        )
+        else:
+            st.info("No filters were applied to this spectrum")
     
     with tab3:
         st.markdown("## Molecular Parameters Prediction")
         st.markdown("Predict LogN (column density) and Tex (excitation temperature) using machine learning models.")
         
         if st.session_state.prediction_models is None:
-            with st.spinner("🔄 Loading prediction models (first time may take a moment)..."):
+            with st.spinner("🔄 Loading prediction models..."):
                 st.session_state.prediction_models = load_prediction_models(st.session_state.MODEL_DIR)
         
         if st.session_state.prediction_models:
-            filter_options = [f"{res['name']} (from {res['filtered_data']['parent_dir']})" for res in st.session_state.filtered_results]
-            selected_filter = st.selectbox(
-                "Select filtered spectrum for prediction:",
-                options=filter_options,
-                index=0
-            )
-            
-            selected_index = filter_options.index(selected_filter)
-            selected_result = st.session_state.filtered_results[selected_index]
+            # Usamos el espectro original si no hay filtros aplicados
+            if st.session_state.filtered_results:
+                filter_options = [f"{res['name']} (from {res['filtered_data']['parent_dir']})" for res in st.session_state.filtered_results]
+                selected_filter = st.selectbox(
+                    "Select filtered spectrum for prediction:",
+                    options=filter_options,
+                    index=0
+                )
+                
+                selected_index = filter_options.index(selected_filter)
+                selected_result = st.session_state.filtered_results[selected_index]
+                freq_data = selected_result['filtered_data']['freq']
+                intensity_data = selected_result['filtered_data']['intensity']
+            else:
+                st.info("Using original spectrum for prediction (no filters applied)")
+                freq_data = st.session_state.spectrum_data[0]
+                intensity_data = st.session_state.spectrum_data[1]
             
             with st.spinner("Processing spectrum for prediction..."):
-                processed_spectrum = process_spectrum_for_prediction(
-                    selected_result['filtered_data']['freq'],
-                    selected_result['filtered_data']['intensity']
-                )
+                processed_spectrum = process_spectrum_for_prediction(freq_data, intensity_data)
             
             if processed_spectrum is not None:
                 with st.spinner("Making predictions..."):
@@ -689,17 +648,16 @@ def display_results():
                     
                     with st.expander("Prediction Details"):
                         st.markdown(f"""
-                        **Filter used:** {selected_result['name']}  
-                        **Source directory:** {selected_result['filtered_data']['parent_dir']}  
-                        **Number of points in spectrum:** {len(selected_result['filtered_data']['freq'])}  
-                        **Intensity range:** {np.min(selected_result['filtered_data']['intensity']):.2e} to {np.max(selected_result['filtered_data']['intensity']):.2e} K
+                        **Source used:** {'Filtered: ' + selected_result['name'] if st.session_state.filtered_results else 'Original spectrum'}  
+                        **Number of points in spectrum:** {len(freq_data)}  
+                        **Intensity range:** {np.min(intensity_data):.2e} to {np.max(intensity_data):.2e} K
                         """)
                 else:
                     st.error("Failed to make predictions")
             else:
                 st.error("Failed to process spectrum for prediction")
         else:
-            st.error("Prediction models could not be loaded. Please check if models are properly downloaded.")
+            st.error("Prediction models could not be loaded. Please check if models are properly placed in the model directory.")
 
 # =============================================
 # HEADER
@@ -729,11 +687,11 @@ ensure_resources_downloaded()
 st.sidebar.title("Configuration")
 
 with st.sidebar:
-    st.header("📁 Downloaded Resources")
+    st.header("📁 Local Resources")
     
     if st.session_state.MODEL_DIR and os.path.exists(st.session_state.MODEL_DIR):
         st.subheader("Models Directory")
-        st.code(f"./{st.session_state.MODEL_DIR}", language="bash")
+        st.code(f"{st.session_state.MODEL_DIR}", language="bash")
         
         if st.session_state.downloaded_files['models']:
             st.markdown("**Model files:**")
@@ -747,7 +705,7 @@ with st.sidebar:
     
     if st.session_state.FILTER_DIR and os.path.exists(st.session_state.FILTER_DIR):
         st.subheader("Filters Directory")
-        st.code(f"./{st.session_state.FILTER_DIR}", language="bash")
+        st.code(f"{st.session_state.FILTER_DIR}", language="bash")
         
         if st.session_state.downloaded_files['filters']:
             st.markdown("**Filter files:**")
@@ -758,12 +716,6 @@ with st.sidebar:
             st.text_area("Filter files list", value=filter_files_text, height=150, label_visibility="collapsed")
         else:
             st.warning("No filter files found")
-
-    if st.button("🔄 Retry Download Resources"):
-        st.session_state.models_downloaded = False
-        st.session_state.resources_downloaded = False
-        ensure_resources_downloaded()
-        st.rerun()
 
 # Input file uploader - ahora manejado con estado
 input_file = st.sidebar.file_uploader(
@@ -785,18 +737,6 @@ if input_file is not None and (not st.session_state.file_processed or st.session
 # Mostrar resultados si ya se procesó un archivo
 if st.session_state.file_processed:
     display_results()
-elif input_file is None and not st.session_state.resources_downloaded:
-    st.markdown("""
-    <div class="error-box">
-    ❌ Required resources could not be downloaded.<br><br>
-    Possible solutions:
-    <ol>
-        <li>Click the 'Retry Download Resources' button in the sidebar</li>
-        <li>Check your internet connection</li>
-        <li>Try again later</li>
-    </ol>
-    </div>
-    """, unsafe_allow_html=True)
 elif input_file is None:
     st.info("ℹ️ Please upload a spectrum file to begin analysis")
 
@@ -810,7 +750,7 @@ if st.session_state.tmp_file_path and os.path.exists(st.session_state.tmp_file_p
 st.sidebar.markdown("""
 **Instructions:**
 1. Upload your spectrum file
-2. The system will automatically apply all filters
+2. The system will process it using local models
 3. View results in the interactive tabs
 4. Predict molecular parameters in the Prediction tab
 5. Download filtered spectra as needed
@@ -820,5 +760,5 @@ st.sidebar.markdown("""
 - FITS files (.fits)
 - Spectrum files (.spec)
 
-**Note:** First-time setup may take a few minutes to download all required resources.
+**Note:** The application uses pre-installed models from your local directory.
 """)
