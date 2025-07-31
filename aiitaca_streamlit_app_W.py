@@ -731,7 +731,7 @@ if input_file is not None and (not st.session_state.file_processed or st.session
     try:
         st.session_state.current_file = input_file.name
         process_uploaded_file(input_file)
-        st.rerun()  # Necesario para actualizar la visualización
+        st.experimental_rerun()  # Necesario para actualizar la visualización
     except Exception as e:
         st.error(f"Error processing file: {str(e)}")
 
