@@ -283,46 +283,50 @@ def display_file_explorer(files, title, file_type='models'):
 # PREDICTION FUNCTIONS
 # =============================================
 def load_prediction_models(model_dir):
-    """Load the machine learning models for prediction"""
+    """Busca recursivamente los archivos de modelos"""
+    required_files = {
+        'rf_tex': 'random_forest_tex.pkl',
+        'rf_logn': 'random_forest_logn.pkl',
+        'x_scaler': 'x_scaler.pkl',
+        'tex_scaler': 'tex_scaler.pkl',
+        'logn_scaler': 'logn_scaler.pkl'
+    }
+
     try:
-        # Find model files
-        model_files = []
+        # Buscar archivos recursivamente
+        found_files = {}
         for root, _, files in os.walk(model_dir):
-            for file in files:
-                if file.endswith('.pkl') and 'random_forest' in file.lower():
-                    model_files.append(os.path.join(root, file))
+            for filename in files:
+                for key, req_file in required_files.items():
+                    if filename == req_file and key not in found_files:
+                        found_files[key] = os.path.join(root, filename)
         
-        if len(model_files) < 4:
-            st.error("Not all required model files found")
+        # Verificar si se encontraron todos
+        missing_files = [req_file for key, req_file in required_files.items() if key not in found_files]
+        if missing_files:
+            st.error(f"Archivos no encontrados: {', '.join(missing_files)}")
+            st.error(f"Buscado en: {os.path.abspath(model_dir)}")
             return None, None, None, None, None
+
+        # Cargar modelos con manejo de versiones
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            rf_tex = joblib.load(found_files['rf_tex'])
+            rf_logn = joblib.load(found_files['rf_logn'])
+            x_scaler = joblib.load(found_files['x_scaler'])
+            tex_scaler = joblib.load(found_files['tex_scaler'])
+            logn_scaler = joblib.load(found_files['logn_scaler'])
+
+        # Debug: Mostrar rutas cargadas
+        st.success("Modelos cargados correctamente desde:")
+        st.json({k: v.replace(model_dir, "./downloaded_models/") for k, v in found_files.items()})
         
-        # Load models and scalers
-        rf_tex = None
-        rf_logn = None
-        x_scaler = None
-        tex_scaler = None
-        logn_scaler = None
-        
-        for model_file in model_files:
-            if 'random_forest_tex' in model_file.lower():
-                rf_tex = joblib.load(model_file)
-            elif 'random_forest_logn' in model_file.lower():
-                rf_logn = joblib.load(model_file)
-            elif 'x_scaler' in model_file.lower():
-                x_scaler = joblib.load(model_file)
-            elif 'tex_scaler' in model_file.lower():
-                tex_scaler = joblib.load(model_file)
-            elif 'logn_scaler' in model_file.lower():
-                logn_scaler = joblib.load(model_file)
-        
-        if all([rf_tex, rf_logn, x_scaler, tex_scaler, logn_scaler]):
-            return rf_tex, rf_logn, x_scaler, tex_scaler, logn_scaler
-        else:
-            st.error("Some model components could not be loaded")
-            return None, None, None, None, None
-            
+        return rf_tex, rf_logn, x_scaler, tex_scaler, logn_scaler
+
     except Exception as e:
-        st.error(f"Error loading prediction models: {str(e)}")
+        st.error(f"Error cargando modelos: {str(e)}")
+        import traceback
+        st.code(traceback.format_exc())
         return None, None, None, None, None
 
 def process_spectrum_for_prediction(file_path, interpolation_length=64610, min_required_points=1000):
