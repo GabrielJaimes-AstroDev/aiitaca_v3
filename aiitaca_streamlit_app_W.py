@@ -773,7 +773,7 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
                             file_name=os.path.basename(result['output_path']),
                             mime='text/plain',
                             key=f"download_{result['name']}",
-                            use_column_width=True
+                            use_container_width=True
                         )
         
         with tab3:
