@@ -62,7 +62,7 @@ def initialize_session_state():
     """Inicializa todas las variables de estado necesarias"""
     if 'resources_downloaded' not in st.session_state:
         st.session_state.resources_downloaded = False
-        st.session_state.MODEL_DIR = "RF_Models/1.ML_Performance_RDF_CH3OCHO_Noisy_Weight3_Sigma0_0001_T1"  # Ruta relativa ajustada
+        st.session_state.MODEL_DIR = "RF_Models/1.ML_Performance_RDF_CH3OCHO_Noisy_Weight3_Sigma0_001_T1"  # Ruta relativa ajustada
         st.session_state.FILTER_DIR = None
         st.session_state.downloaded_files = {'models': [], 'filters': []}
         st.session_state.prediction_models_loaded = False
