@@ -31,6 +31,8 @@ if not hasattr(st.session_state, 'resources_loaded'):
     st.session_state.local_files = {'models': [], 'filters': []}
     st.session_state.prediction_models_loaded = False
     st.session_state.prediction_results = None
+    st.session_state.original_spectrum = None
+    st.session_state.filtered_spectra = []
 
 # =============================================
 # PAGE CONFIGURATION
@@ -114,6 +116,11 @@ css_styles = """
 .file-explorer-item {
     padding: 5px;
     border-bottom: 1px dotted #444;
+}
+.progress-text {
+    font-size: 14px;
+    color: #BBBBBB;
+    margin-bottom: 5px;
 }
 </style>
 """
@@ -351,10 +358,6 @@ def load_prediction_models(model_dir):
             tex_scaler = joblib.load(found_files['tex_scaler'])
             logn_scaler = joblib.load(found_files['logn_scaler'])
 
-        # Debug: Mostrar rutas cargadas
-        st.success("Modelos cargados correctamente desde:")
-        st.json({k: v.replace(model_dir, "./RF_Models/") for k, v in found_files.items()})
-        
         return rf_tex, rf_logn, x_scaler, tex_scaler, logn_scaler
 
     except Exception as e:
@@ -458,26 +461,47 @@ def plot_prediction_results(tex_pred, logn_pred):
 
 def run_prediction(filtered_file_path, model_dir):
     """Run the full prediction pipeline"""
-    with st.spinner("Loading prediction models..."):
-        rf_tex, rf_logn, x_scaler, tex_scaler, logn_scaler = load_prediction_models(model_dir)
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    # Step 1: Load models
+    status_text.markdown("<div class='progress-text'>Step 1/4: Loading prediction models...</div>", unsafe_allow_html=True)
+    progress_bar.progress(25)
+    rf_tex, rf_logn, x_scaler, tex_scaler, logn_scaler = load_prediction_models(model_dir)
     
     if None in [rf_tex, rf_logn, x_scaler, tex_scaler, logn_scaler]:
+        progress_bar.empty()
+        status_text.empty()
         return None, None
     
-    with st.spinner("Processing spectrum for prediction..."):
-        scaled_spectrum = process_spectrum_for_prediction(filtered_file_path)
-        if scaled_spectrum is None:
-            return None, None
-        
-        # Reshape and scale
-        scaled_spectrum = x_scaler.transform([scaled_spectrum])
+    # Step 2: Process spectrum
+    status_text.markdown("<div class='progress-text'>Step 2/4: Processing spectrum for prediction...</div>", unsafe_allow_html=True)
+    progress_bar.progress(50)
+    scaled_spectrum = process_spectrum_for_prediction(filtered_file_path)
+    if scaled_spectrum is None:
+        progress_bar.empty()
+        status_text.empty()
+        return None, None
     
-    with st.spinner("Making predictions..."):
-        tex_pred_scaled = rf_tex.predict(scaled_spectrum)
-        tex_pred = tex_scaler.inverse_transform(tex_pred_scaled.reshape(-1, 1))[0,0]
-        
-        logn_pred_scaled = rf_logn.predict(scaled_spectrum)
-        logn_pred = logn_scaler.inverse_transform(logn_pred_scaled.reshape(-1, 1))[0,0]
+    # Reshape and scale
+    scaled_spectrum = x_scaler.transform([scaled_spectrum])
+    
+    # Step 3: Make predictions
+    status_text.markdown("<div class='progress-text'>Step 3/4: Making predictions...</div>", unsafe_allow_html=True)
+    progress_bar.progress(75)
+    tex_pred_scaled = rf_tex.predict(scaled_spectrum)
+    tex_pred = tex_scaler.inverse_transform(tex_pred_scaled.reshape(-1, 1))[0,0]
+    
+    logn_pred_scaled = rf_logn.predict(scaled_spectrum)
+    logn_pred = logn_scaler.inverse_transform(logn_pred_scaled.reshape(-1, 1))[0,0]
+    
+    # Step 4: Finalizing
+    status_text.markdown("<div class='progress-text'>Step 4/4: Finalizing results...</div>", unsafe_allow_html=True)
+    progress_bar.progress(100)
+    time.sleep(0.5)  # Let the user see the progress complete
+    
+    progress_bar.empty()
+    status_text.empty()
     
     return tex_pred, logn_pred
 
@@ -603,10 +627,15 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
         tmp_path = tmp_file.name
     
     try:
-        # Read input spectrum
+        # Read input spectrum and store in session state
         input_freq, input_spec = robust_read_file(tmp_path)
         if input_freq is None:
             raise ValueError("Could not read the spectrum file")
+        
+        st.session_state.original_spectrum = {
+            'freq': input_freq,
+            'intensity': input_spec
+        }
         
         # Get all filter files
         filter_files = []
@@ -619,7 +648,7 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
             raise ValueError("No filter files found in the filters directory")
         
         # Process with all filters
-        filtered_results = []
+        st.session_state.filtered_spectra = []
         failed_filters = []
         
         with st.spinner("🔍 Applying filters..."):
@@ -647,12 +676,11 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
                         comments=''
                     )
                     
-                    filtered_results.append({
+                    st.session_state.filtered_spectra.append({
                         'name': result['filter_name'],
-                        'original_freq': input_freq,
-                        'original_intensity': input_spec,
                         'filtered_data': result,
-                        'output_path': output_path
+                        'output_path': output_path,
+                        'parent_dir': result['parent_dir']
                     })
                 else:
                     failed_filters.append(os.path.basename(filter_file))
@@ -661,10 +689,10 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
             status_text.empty()
         
         # Show results
-        if not filtered_results:
+        if not st.session_state.filtered_spectra:
             raise ValueError(f"No filters were successfully applied. {len(failed_filters)} filters failed.")
         
-        st.markdown(f'<div class="success-box">✅ Successfully applied {len(filtered_results)} filters</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="success-box">✅ Successfully applied {len(st.session_state.filtered_spectra)} filters</div>', unsafe_allow_html=True)
         
         if failed_filters:
             st.markdown(f'<div class="warning-box">⚠ Failed to apply {len(failed_filters)} filters: {", ".join(failed_filters)}</div>', unsafe_allow_html=True)
@@ -676,17 +704,17 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
             # Main interactive graph
             fig_main = go.Figure()
             
-            # Original spectrum
+            # Original spectrum (from session state)
             fig_main.add_trace(go.Scatter(
-                x=input_freq,
-                y=input_spec,
+                x=st.session_state.original_spectrum['freq'],
+                y=st.session_state.original_spectrum['intensity'],
                 mode='lines',
                 name='Original Spectrum',
                 line=dict(color='white', width=2))
             )
             
             # Add all filtered spectra
-            for result in filtered_results:
+            for result in st.session_state.filtered_spectra:
                 fig_main.add_trace(go.Scatter(
                     x=result['filtered_data']['freq'],
                     y=result['filtered_data']['intensity'],
@@ -716,8 +744,8 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
         
         with tab2:
             # Details for each filter
-            for result in filtered_results:
-                with st.expander(f"Filter: {result['name']} (from {result['filtered_data']['parent_dir']})", expanded=True):
+            for result in st.session_state.filtered_spectra:
+                with st.expander(f"Filter: {result['name']} (from {result['parent_dir']})", expanded=True):
                     col1, col2 = st.columns(2)
                     
                     with col1:
@@ -743,8 +771,8 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
                         # Original vs filtered comparison
                         fig_compare = go.Figure()
                         fig_compare.add_trace(go.Scatter(
-                            x=result['original_freq'],
-                            y=result['original_intensity'],
+                            x=st.session_state.original_spectrum['freq'],
+                            y=st.session_state.original_spectrum['intensity'],
                             mode='lines',
                             name='Original',
                             line=dict(color='white', width=1))
@@ -782,7 +810,7 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
             
             # Find the CH3OCHO filtered file
             ch3ocho_result = None
-            for result in filtered_results:
+            for result in st.session_state.filtered_spectra:
                 if "CH3OCHO" in result['name'].upper():
                     ch3ocho_result = result
                     break
@@ -791,9 +819,8 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
                 st.success(f"Found CH3OCHO filtered spectrum: {ch3ocho_result['name']}")
                 
                 if st.button("Run CH3OCHO Prediction"):
-                    with st.spinner("Running prediction for CH3OCHO..."):
-                        tex_pred, logn_pred = run_prediction(ch3ocho_result['output_path'], st.session_state.MODEL_DIR)
-                    
+                    tex_pred, logn_pred = run_prediction(ch3ocho_result['output_path'], st.session_state.MODEL_DIR)
+                
                     if tex_pred is not None and logn_pred is not None:
                         st.session_state.prediction_results = {
                             'tex': tex_pred,
