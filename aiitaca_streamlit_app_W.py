@@ -63,7 +63,7 @@ def initialize_session_state():
     if 'resources_downloaded' not in st.session_state:
         st.session_state.resources_downloaded = False
         st.session_state.MODEL_DIR = "RF_Models/1.ML_Performance_RDF_CH3OCHO_Noisy_Weight3_Sigma0_001_T1"  # Ruta relativa ajustada
-        st.session_state.FILTER_DIR = None
+        st.session_state.FILTER_DIR = "RF_Filters"  # Ruta ajustada para los filtros
         st.session_state.downloaded_files = {'models': [], 'filters': []}
         st.session_state.prediction_models_loaded = False
         st.session_state.prediction_models = None
@@ -731,7 +731,7 @@ if input_file is not None and (not st.session_state.file_processed or st.session
     try:
         st.session_state.current_file = input_file.name
         process_uploaded_file(input_file)
-        st.experimental_rerun()  # Necesario para actualizar la visualización
+        st.experimental_rerun()  # Corregido: reemplazado st.rerun() por st.experimental_rerun()
     except Exception as e:
         st.error(f"Error processing file: {str(e)}")
 
