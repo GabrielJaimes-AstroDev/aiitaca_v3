@@ -712,7 +712,7 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
                     x=1
                 )
             )
-            st.plotly_chart(fig_main, use_container_width=True)
+            st.plotly_chart(fig_main, use_column_width=True)
         
         with tab2:
             # Details for each filter
@@ -737,7 +737,7 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
                             paper_bgcolor='#0D0F14',
                             showlegend=False
                         )
-                        st.plotly_chart(fig_filter, use_container_width=True)
+                        st.plotly_chart(fig_filter, use_column_width=True)
                     
                     with col2:
                         # Original vs filtered comparison
@@ -763,7 +763,7 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
                             paper_bgcolor='#0D0F14',
                             showlegend=False
                         )
-                        st.plotly_chart(fig_compare, use_container_width=True)
+                        st.plotly_chart(fig_compare, use_column_width=True)
                     
                     # Download button
                     with open(result['output_path'], 'rb') as f:
@@ -773,7 +773,7 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
                             file_name=os.path.basename(result['output_path']),
                             mime='text/plain',
                             key=f"download_{result['name']}",
-                            use_container_width=True
+                            use_column_width=True
                         )
         
         with tab3:
