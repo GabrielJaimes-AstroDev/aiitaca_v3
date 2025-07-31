@@ -61,13 +61,13 @@ if not verify_dependencies():
 def initialize_session_state():
     """Inicializa todas las variables de estado necesarias"""
     if 'resources_downloaded' not in st.session_state:
-        st.session_state.resources_downloaded = False
-        st.session_state.MODEL_DIR = "RF_Models/1.ML_Performance_RDF_CH3OCHO_Noisy_Weight3_Sigma0_001_T1"  # Ruta relativa ajustada
-        st.session_state.FILTER_DIR = "RF_Filters"  # Ruta ajustada para los filtros
+        st.session_state.resources_downloaded = True  # Cambiado a True ya que no descargamos
+        st.session_state.MODEL_DIR = "RF_Models/1.ML_Performance_RDF_CH3OCHO_Noisy_Weight3_Sigma0_001_T1"
+        st.session_state.FILTER_DIR = "RF_Filters"
         st.session_state.downloaded_files = {'models': [], 'filters': []}
         st.session_state.prediction_models_loaded = False
         st.session_state.prediction_models = None
-        st.session_state.models_downloaded = False
+        st.session_state.models_downloaded = True  # Cambiado a True ya que no descargamos
     
     # Nuevos estados para manejar el procesamiento de archivos
     if 'file_processed' not in st.session_state:
@@ -107,7 +107,7 @@ load_css_styles()
 # HELPER FUNCTIONS
 # =============================================
 def list_downloaded_files(directory):
-    """Lista recursivamente todos los archivos descargados"""
+    """Lista recursivamente todos los archivos en el directorio local"""
     file_list = []
     try:
         for root, dirs, files in os.walk(directory):
@@ -387,25 +387,17 @@ def plot_prediction_results(tex_pred, logn_pred):
     
     return fig
 
-def ensure_resources_downloaded():
-    """Asegura que los recursos se descarguen solo una vez"""
-    if not st.session_state.models_downloaded:
+def ensure_local_resources():
+    """Verifica y carga los recursos locales"""
+    if not st.session_state.prediction_models:
         with st.spinner("🔄 Loading local models..."):
-            # Verificar si el directorio existe
-            if not os.path.exists(st.session_state.MODEL_DIR):
-                st.error(f"Model directory not found at: {os.path.abspath(st.session_state.MODEL_DIR)}")
-                st.error(f"Current working directory: {os.getcwd()}")
-                st.error(f"Directory contents: {os.listdir()}")
-                return
+            st.session_state.prediction_models = load_prediction_models(st.session_state.MODEL_DIR)
+            if st.session_state.prediction_models:
+                st.session_state.prediction_models_loaded = True
+                st.session_state.downloaded_files['models'] = list_downloaded_files(st.session_state.MODEL_DIR)
             
-            st.session_state.downloaded_files['models'] = list_downloaded_files(st.session_state.MODEL_DIR)
-            
-            if st.session_state.downloaded_files['models']:
-                st.session_state.resources_downloaded = True
-                st.session_state.models_downloaded = True
-                st.success("Local models loaded successfully!")
-            else:
-                st.error("No model files found in the specified directory.")
+    if st.session_state.FILTER_DIR and os.path.exists(st.session_state.FILTER_DIR):
+        st.session_state.downloaded_files['filters'] = list_downloaded_files(st.session_state.FILTER_DIR)
 
 def process_uploaded_file(input_file):
     """Procesa el archivo subido y almacena los resultados en session_state"""
@@ -680,7 +672,7 @@ st.markdown(f"<div class='description-panel'>{description_content}</div>", unsaf
 # =============================================
 # MAIN INTERFACE
 # =============================================
-ensure_resources_downloaded()
+ensure_local_resources()
 
 # =============================================
 # SIDEBAR - CONFIGURATION
@@ -731,7 +723,7 @@ if input_file is not None and (not st.session_state.file_processed or st.session
     try:
         st.session_state.current_file = input_file.name
         process_uploaded_file(input_file)
-        st.experimental_rerun()  # Corregido: reemplazado st.rerun() por st.experimental_rerun()
+        st.experimental_rerun()
     except Exception as e:
         st.error(f"Error processing file: {str(e)}")
 
