@@ -15,8 +15,8 @@ from glob import glob
 # =============================================
 if not hasattr(st.session_state, 'resources_downloaded'):
     st.session_state.resources_downloaded = False
-    st.session_state.MODEL_DIR = None
-    st.session_state.FILTER_DIR = None
+    st.session_state.MODEL_DIR = "downloaded_models"  # Local models directory
+    st.session_state.FILTER_DIR = "downloaded_filters"  # Local filters directory
     st.session_state.downloaded_files = {'models': [], 'filters': []}
 
 # =============================================
@@ -106,49 +106,6 @@ def display_directory_tree(directory, max_depth=3, current_depth=0):
     
     tree_html += "</div>"
     return tree_html
-
-def download_google_drive_folder(folder_url, output_dir):
-    """Recursively download all content from a Google Drive folder"""
-    try:
-        folder_id = folder_url.split('folders/')[-1].split('?')[0]
-        shutil.rmtree(output_dir, ignore_errors=True)
-        os.makedirs(output_dir, exist_ok=True)
-        
-        gdown.download_folder(
-            id=folder_id,
-            output=output_dir,
-            quiet=True,
-            use_cookies=False,
-            remaining_ok=True
-        )
-        return True
-    except Exception as e:
-        st.error(f"Error downloading folder: {str(e)}")
-        return False
-
-def download_resources():
-    """Download all required resources"""
-    # Load URLs from external file
-    with open('urls.txt', 'r') as f:
-        urls = f.read().splitlines()
-    
-    MODEL_FOLDER_URL = urls[0]  # First line is models URL
-    FILTER_FOLDER_URL = urls[1]  # Second line is filters URL
-    
-    MODEL_DIR = "downloaded_models"
-    FILTER_DIR = "downloaded_filters"
-    
-    # Download models
-    with st.spinner("🔽 Downloading models (this may take several minutes)..."):
-        if not download_google_drive_folder(MODEL_FOLDER_URL, MODEL_DIR):
-            return None, None
-    
-    # Download filters
-    with st.spinner("🔽 Downloading filters..."):
-        if not download_google_drive_folder(FILTER_FOLDER_URL, FILTER_DIR):
-            return None, None
-    
-    return MODEL_DIR, FILTER_DIR
 
 def robust_read_file(file_path):
     """Read spectrum or filter files with robust format handling"""
@@ -293,32 +250,44 @@ st.markdown(f"<div class='description-panel'>{description_content}</div>", unsaf
 # =============================================
 # MAIN INTERFACE
 # =============================================
-# Download resources on startup
+# Verify local resources on startup
 if not st.session_state.resources_downloaded:
-    st.session_state.MODEL_DIR, st.session_state.FILTER_DIR = download_resources()
-    if st.session_state.MODEL_DIR and st.session_state.FILTER_DIR:
+    # Check if local directories exist
+    model_dir_exists = os.path.exists(st.session_state.MODEL_DIR)
+    filter_dir_exists = os.path.exists(st.session_state.FILTER_DIR)
+    
+    if model_dir_exists and filter_dir_exists:
         try:
             st.session_state.downloaded_files['models'] = list_downloaded_files(st.session_state.MODEL_DIR)
             st.session_state.downloaded_files['filters'] = list_downloaded_files(st.session_state.FILTER_DIR)
             st.session_state.resources_downloaded = True
-            st.experimental_rerun()
+            st.success("Local resources loaded successfully!")
         except Exception as e:
-            st.error(f"Error processing downloaded files: {str(e)}")
+            st.error(f"Error processing local files: {str(e)}")
             st.session_state.resources_downloaded = False
+    else:
+        missing_dirs = []
+        if not model_dir_exists:
+            missing_dirs.append(f"Models directory: {st.session_state.MODEL_DIR}")
+        if not filter_dir_exists:
+            missing_dirs.append(f"Filters directory: {st.session_state.FILTER_DIR}")
+        
+        st.error(f"Required local directories not found:\n{'\n'.join(missing_dirs)}")
+        st.session_state.resources_downloaded = False
 
 # =============================================
 # SIDEBAR - CONFIGURATION
 # =============================================
 st.sidebar.title("Configuration")
 
-# Show downloaded resources
+# Show local resources
 with st.sidebar:
-    st.header("📁 Downloaded Resources")
+    st.header("📁 Local Resources")
     
     # Models section
     if st.session_state.MODEL_DIR and os.path.exists(st.session_state.MODEL_DIR):
         st.subheader("Models Directory")
-        st.code(f"./{st.session_state.MODEL_DIR}", language="bash")
+        st.code(f"{os.path.abspath(st.session_state.MODEL_DIR)}", language="bash")
         
         # Display model files in a compact way
         if st.session_state.downloaded_files['models']:
@@ -329,12 +298,12 @@ with st.sidebar:
             )
             st.text_area("Model files list", value=model_files_text, height=150, label_visibility="collapsed")
         else:
-            st.warning("No model files found")
+            st.warning("No model files found in the directory")
     
     # Filters section
     if st.session_state.FILTER_DIR and os.path.exists(st.session_state.FILTER_DIR):
         st.subheader("Filters Directory")
-        st.code(f"./{st.session_state.FILTER_DIR}", language="bash")
+        st.code(f"{os.path.abspath(st.session_state.FILTER_DIR)}", language="bash")
         
         # Display filter files in a compact way
         if st.session_state.downloaded_files['filters']:
@@ -345,16 +314,18 @@ with st.sidebar:
             )
             st.text_area("Filter files list", value=filter_files_text, height=150, label_visibility="collapsed")
         else:
-            st.warning("No filter files found")
+            st.warning("No filter files found in the directory")
 
-    # Button to retry download
-    if st.button("🔄 Retry Download Resources"):
-        st.session_state.MODEL_DIR, st.session_state.FILTER_DIR = download_resources()
-        if st.session_state.MODEL_DIR and st.session_state.FILTER_DIR:
+    # Button to refresh resources
+    if st.button("🔄 Refresh Resources"):
+        try:
             st.session_state.downloaded_files['models'] = list_downloaded_files(st.session_state.MODEL_DIR)
             st.session_state.downloaded_files['filters'] = list_downloaded_files(st.session_state.FILTER_DIR)
             st.session_state.resources_downloaded = True
-            st.rerun()
+            st.success("Resources refreshed successfully!")
+            st.experimental_rerun()
+        except Exception as e:
+            st.error(f"Error refreshing resources: {str(e)}")
 
 # File selector
 input_file = st.sidebar.file_uploader(
@@ -366,7 +337,7 @@ input_file = st.sidebar.file_uploader(
 # =============================================
 # MAIN PROCESSING
 # =============================================
-if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FILTER_DIR:
+if input_file is not None and st.session_state.resources_downloaded:
     with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
         tmp_file.write(input_file.getvalue())
         tmp_path = tmp_file.name
@@ -550,18 +521,18 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
     finally:
         os.unlink(tmp_path)
 
-elif not st.session_state.MODEL_DIR or not st.session_state.FILTER_DIR:
+elif not st.session_state.resources_downloaded:
     st.markdown("""
     <div class="error-box">
-    ❌ Required resources could not be downloaded.<br><br>
-    Possible solutions:
-    <ol>
-        <li>Click the 'Retry Download Resources' button in the sidebar</li>
-        <li>Check your internet connection</li>
-        <li>Try again later</li>
-    </ol>
+    ❌ Required local resources not found or could not be loaded.<br><br>
+    Please ensure the following directories exist:
+    <ul>
+        <li>Models directory: <code>{}</code></li>
+        <li>Filters directory: <code>{}</code></li>
+    </ul>
+    Then click the 'Refresh Resources' button in the sidebar.
     </div>
-    """, unsafe_allow_html=True)
+    """.format(st.session_state.MODEL_DIR, st.session_state.FILTER_DIR), unsafe_allow_html=True)
 else:
     st.info("ℹ️ Please upload a spectrum file to begin analysis")
 
@@ -580,5 +551,5 @@ st.sidebar.markdown("""
 - FITS files (.fits)
 - Spectrum files (.spec)
 
-**Note:** First-time setup may take a few minutes to download all required resources.
+**Note:** The application uses pre-installed models and filters from local directories.
 """)
