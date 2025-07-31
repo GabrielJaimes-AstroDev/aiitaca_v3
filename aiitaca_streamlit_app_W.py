@@ -18,7 +18,7 @@ import matplotlib.pyplot as plt
 # CONFIGURACIÓN DE PATHS LOCALES
 # =============================================
 # Configura estas rutas según tu estructura de directorios
-LOCAL_MODEL_DIR = "RF_Models"
+LOCAL_MODEL_DIR = "RF_Models/1.ML_Performance_RDF_CH3OCHO_Noisy_Weight3_Sigma0_001_T1"
 LOCAL_FILTER_DIR = "RF_Filters"
 
 # =============================================
@@ -31,9 +31,6 @@ if not hasattr(st.session_state, 'resources_loaded'):
     st.session_state.local_files = {'models': [], 'filters': []}
     st.session_state.prediction_models_loaded = False
     st.session_state.prediction_results = None
-    st.session_state.original_spectrum = None
-    st.session_state.filtered_spectra = []
-    st.session_state.available_models = []
 
 # =============================================
 # PAGE CONFIGURATION
@@ -49,94 +46,152 @@ st.set_page_config(
 # =============================================
 css_styles = """
 <style>
+:root {
+    --primary-color: #1E88E5;
+    --secondary-color: #0D0F14;
+    --accent-color: #4CAF50;
+    --text-color: #FFFFFF;
+    --subtext-color: #BBBBBB;
+    --panel-bg: #1E1E1E;
+    --error-color: #C62828;
+    --warning-color: #FF8F00;
+    --success-color: #2E7D32;
+}
+
 .main-title {
     font-size: 28px !important;
     font-weight: bold !important;
-    color: #FFFFFF !important;
+    color: var(--text-color) !important;
     margin-bottom: 0.2rem !important;
 }
+
 .subtitle {
     font-size: 18px !important;
-    color: #BBBBBB !important;
+    color: var(--subtext-color) !important;
     margin-bottom: 1.5rem !important;
 }
+
 .description-panel {
-    background-color: #1E1E1E;
+    background-color: var(--panel-bg);
     padding: 15px;
     border-radius: 10px;
     margin-bottom: 20px;
-    border-left: 5px solid #4CAF50;
+    border-left: 5px solid var(--accent-color);
 }
+
 .success-box {
-    background-color: #2E7D32;
+    background-color: var(--success-color);
     color: white;
     padding: 10px;
     border-radius: 5px;
     margin: 10px 0;
 }
+
 .warning-box {
-    background-color: #FF8F00;
+    background-color: var(--warning-color);
     color: white;
     padding: 10px;
     border-radius: 5px;
     margin: 10px 0;
 }
+
 .error-box {
-    background-color: #C62828;
+    background-color: var(--error-color);
     color: white;
     padding: 10px;
     border-radius: 5px;
     margin: 10px 0;
 }
+
 .tree-view {
     font-family: monospace;
     margin-left: 15px;
 }
+
 .directory {
     color: #4FC3F7;
     margin: 5px 0;
     font-weight: bold;
 }
+
 .file {
     color: #E0E0E0;
     margin-left: 20px;
 }
+
 .size {
     color: #FF9800;
     font-style: italic;
 }
+
 .file-explorer-header {
     font-size: 18px;
     font-weight: bold;
-    color: #4FC3F7;
+    color: var(--primary-color);
     margin-bottom: 10px;
     border-bottom: 1px solid #444;
     padding-bottom: 5px;
 }
+
 .file-explorer-item {
     padding: 5px;
     border-bottom: 1px dotted #444;
 }
-.progress-text {
-    font-size: 14px;
-    color: #BBBBBB;
-    margin-bottom: 5px;
+
+.buttons-container {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
 }
-.progress-container {
-    width: 100%;
-    background-color: #1E1E1E;
-    border-radius: 5px;
-    margin: 10px 0;
+
+.physical-params {
+    font-size: 16px;
+    margin: 8px 0;
+    color: var(--text-color);
 }
-.progress-bar {
-    height: 20px;
-    background-color: #4CAF50;
-    border-radius: 5px;
-    width: 0%;
-    transition: width 0.5s;
-    text-align: center;
+
+.summary-panel {
+    background-color: var(--panel-bg);
+    padding: 15px;
+    border-radius: 10px;
+    margin-bottom: 20px;
+}
+
+.stButton>button {
+    background-color: var(--primary-color);
     color: white;
-    line-height: 20px;
+    border-radius: 5px;
+    border: none;
+    padding: 8px 16px;
+    font-size: 14px;
+    transition: all 0.3s;
+}
+
+.stButton>button:hover {
+    background-color: #1565C0;
+    color: white;
+}
+
+.stSelectbox>div>div>select {
+    background-color: var(--panel-bg);
+    color: var(--text-color);
+}
+
+.stSlider>div>div>div>div {
+    background-color: var(--primary-color);
+}
+
+.plotly-container {
+    background-color: var(--secondary-color);
+    border-radius: 10px;
+    padding: 10px;
+}
+
+.info-panel {
+    background-color: var(--panel-bg);
+    padding: 15px;
+    border-radius: 10px;
+    margin-bottom: 20px;
 }
 </style>
 """
@@ -218,11 +273,52 @@ def robust_read_file(file_path):
     """Read spectrum or filter files with robust format handling"""
     try:
         # FITS files
-        if file_path.endswith('.fits'):
+        if file_path.lower().endswith('.fits'):
             with fits.open(file_path) as hdul:
-                return hdul[1].data['freq'], hdul[1].data['intensity']
+                if len(hdul) > 1:
+                    return hdul[1].data['freq'], hdul[1].data['intensity']
+                else:
+                    # Handle simple FITS with just data
+                    data = hdul[0].data
+                    if data.ndim == 2:
+                        return data[0], data[1]
+                    else:
+                        raise ValueError("Unsupported FITS format")
         
-        # Text files
+        # SPEC files (similar to text but with possible headers)
+        if file_path.lower().endswith('.spec'):
+            with open(file_path, 'rb') as f:
+                content = f.read()
+            
+            # Try different encodings
+            for encoding in ['utf-8', 'latin-1', 'ascii']:
+                try:
+                    decoded = content.decode(encoding)
+                    lines = decoded.splitlines()
+                    break
+                except UnicodeDecodeError:
+                    continue
+            
+            data_lines = []
+            for line in lines:
+                stripped = line.strip()
+                if stripped and not stripped.startswith(('!', '//', '#')):
+                    cleaned = stripped.replace(',', '.')
+                    parts = cleaned.split()
+                    if len(parts) >= 2:
+                        try:
+                            float(parts[0]), float(parts[1])
+                            data_lines.append(cleaned)
+                        except ValueError:
+                            continue
+            
+            if not data_lines:
+                raise ValueError("No valid data found in SPEC file")
+            
+            data = np.genfromtxt(data_lines)
+            return data[:, 0], data[:, 1]
+        
+        # Text files (TXT, DAT)
         with open(file_path, 'rb') as f:
             content = f.read()
         
@@ -238,7 +334,13 @@ def robust_read_file(file_path):
                     stripped = line.strip()
                     if stripped and not stripped.startswith(('!', '//', '#')):
                         cleaned = stripped.replace(',', '.')
-                        data_lines.append(cleaned)
+                        parts = cleaned.split()
+                        if len(parts) >= 2:
+                            try:
+                                float(parts[0]), float(parts[1])
+                                data_lines.append(cleaned)
+                            except ValueError:
+                                continue
                 
                 if not data_lines:
                     continue
@@ -336,38 +438,6 @@ def display_file_explorer(files, title, file_type='models'):
                     </div>
                     """, unsafe_allow_html=True)
 
-def find_available_models(model_dir):
-    """Find all available model directories that contain the required files"""
-    required_files = {
-        'rf_tex': 'random_forest_tex.pkl',
-        'rf_logn': 'random_forest_logn.pkl',
-        'x_scaler': 'x_scaler.pkl',
-        'tex_scaler': 'tex_scaler.pkl',
-        'logn_scaler': 'logn_scaler.pkl'
-    }
-    
-    available_models = []
-    
-    try:
-        for root, dirs, files in os.walk(model_dir):
-            # Check if this directory contains all required files
-            has_all_files = True
-            for req_file in required_files.values():
-                if req_file not in files:
-                    has_all_files = False
-                    break
-            
-            if has_all_files:
-                model_name = os.path.basename(root)
-                available_models.append({
-                    'name': model_name,
-                    'path': root
-                })
-    except Exception as e:
-        st.error(f"Error searching for models: {str(e)}")
-    
-    return available_models
-
 # =============================================
 # PREDICTION FUNCTIONS
 # =============================================
@@ -410,57 +480,46 @@ def load_prediction_models(model_dir):
 
     except Exception as e:
         st.error(f"Error cargando modelos: {str(e)}")
-        import traceback
-        st.code(traceback.format_exc())
         return None, None, None, None, None
 
 def process_spectrum_for_prediction(file_path, interpolation_length=64610, min_required_points=1000):
     """Process spectrum for prediction"""
     try:
-        with open(file_path, 'r') as f:
-            lines = f.readlines()   
+        # Read file with robust reader
+        freq, intensity = robust_read_file(file_path)
+        if freq is None or intensity is None:
+            raise ValueError("Could not read spectrum data")
         
-        data_lines = []
-        for line in lines:
-            stripped = line.strip()
-            if stripped and not stripped.startswith(('!', '//', '#')):
-                parts = stripped.split()
-                if len(parts) >= 2:
-                    try:
-                        float(parts[0]), float(parts[1])
-                        data_lines.append(line)
-                    except ValueError:
-                        continue
+        if len(freq) < min_required_points:
+            raise ValueError(f"Spectrum has too few points ({len(freq)})")
         
-        if not data_lines:
-            st.error("No numeric data found in test spectrum")
-            return None
+        # Convert to numpy arrays if not already
+        freq = np.array(freq)
+        intensity = np.array(intensity)
         
-        data = pd.read_csv(StringIO('\n'.join(data_lines)), 
-                         sep='\s+', header=None, names=['freq', 'intensity'],
-                         dtype=np.float32)
+        # Remove NaN and infinite values
+        valid = (~np.isnan(freq)) & (~np.isnan(intensity)) & (~np.isinf(intensity))
+        freq = freq[valid]
+        intensity = intensity[valid]
         
-        data = data.replace([np.inf, -np.inf], np.nan).dropna()
+        if len(freq) < min_required_points:
+            raise ValueError(f"After cleaning, spectrum has too few points ({len(freq)})")
         
-        if len(data) < min_required_points:
-            st.error(f"Test spectrum has too few points ({len(data)})")
-            return None
-        
-        min_freq = data['freq'].min()
-        max_freq = data['freq'].max()
+        min_freq = np.min(freq)
+        max_freq = np.max(freq)
         freq_range = max_freq - min_freq
         if freq_range == 0:
-            st.error("Zero frequency range in test spectrum")
-            return None
+            raise ValueError("Zero frequency range in test spectrum")
         
-        normalized_freq = (data['freq'] - min_freq) / freq_range
+        normalized_freq = (freq - min_freq) / freq_range
         
-        interp_func = interp1d(normalized_freq, data['intensity'], 
+        interp_func = interp1d(normalized_freq, intensity, 
                               kind='linear', bounds_error=False, 
-                              fill_value=(data['intensity'].iloc[0], data['intensity'].iloc[-1]))
+                              fill_value=(intensity[0], intensity[-1]))
         new_freq = np.linspace(0, 1, interpolation_length)
         interpolated_intensity = interp_func(new_freq).astype(np.float32)
         
+        # Handle any remaining NaN values
         if np.any(np.isnan(interpolated_intensity)):
             nan_indices = np.where(np.isnan(interpolated_intensity))[0]
             for idx in nan_indices:
@@ -468,6 +527,7 @@ def process_spectrum_for_prediction(file_path, interpolation_length=64610, min_r
                 right_idx = min(interpolation_length-1, idx+1)
                 interpolated_intensity[idx] = np.mean(interpolated_intensity[[left_idx, right_idx]])
         
+        # Normalize intensity
         min_intensity = np.min(interpolated_intensity)
         max_intensity = np.max(interpolated_intensity)
         if max_intensity != min_intensity:
@@ -484,15 +544,22 @@ def plot_prediction_results(tex_pred, logn_pred):
     """Plot the prediction results"""
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
     
+    # Custom style
+    plt.style.use('dark_background')
+    fig.patch.set_facecolor('#0D0F14')
+    ax1.set_facecolor('#0D0F14')
+    ax2.set_facecolor('#0D0F14')
+    
     # LogN plot
     ax1.scatter(18.1857, logn_pred, c='red', s=200, edgecolors='black')
     ax1.annotate(f"Pred: {logn_pred:.2f}", 
                 (18.1857, logn_pred),
                 textcoords="offset points",
                 xytext=(15,15), ha='center', fontsize=12, color='red')
-    ax1.set_xlabel('LogN de referencia')
-    ax1.set_ylabel('LogN predicho')
-    ax1.set_title('Predicción de LogN')
+    ax1.set_xlabel('LogN de referencia', color='white')
+    ax1.set_ylabel('LogN predicho', color='white')
+    ax1.set_title('Predicción de LogN', color='white')
+    ax1.tick_params(colors='white')
     
     # Tex plot
     ax2.scatter(203.492, tex_pred, c='red', s=200, edgecolors='black')
@@ -500,56 +567,53 @@ def plot_prediction_results(tex_pred, logn_pred):
                 (203.492, tex_pred),
                 textcoords="offset points",
                 xytext=(15,15), ha='center', fontsize=12, color='red')
-    ax2.set_xlabel('Tex de referencia (K)')
-    ax2.set_ylabel('Tex predicho (K)')
-    ax2.set_title('Predicción de Tex')
+    ax2.set_xlabel('Tex de referencia (K)', color='white')
+    ax2.set_ylabel('Tex predicho (K)', color='white')
+    ax2.set_title('Predicción de Tex', color='white')
+    ax2.tick_params(colors='white')
     
     plt.tight_layout()
     return fig
 
-def run_prediction(filtered_file_path, model_dir, progress_container):
-    """Run the full prediction pipeline"""
-    progress_text = progress_container.empty()
-    progress_bar = progress_container.progress(0)
+def run_prediction(filtered_file_path, model_dir):
+    """Run the full prediction pipeline with progress bar"""
+    progress_bar = st.progress(0)
+    status_text = st.empty()
     
-    # Step 1: Load models
-    progress_text.markdown("<div class='progress-text'>Step 1/4: Loading prediction models...</div>", unsafe_allow_html=True)
-    progress_bar.progress(25)
+    # Step 1: Loading models
+    status_text.text("Loading prediction models...")
     rf_tex, rf_logn, x_scaler, tex_scaler, logn_scaler = load_prediction_models(model_dir)
+    progress_bar.progress(20)
     
     if None in [rf_tex, rf_logn, x_scaler, tex_scaler, logn_scaler]:
-        progress_bar.empty()
-        progress_text.empty()
         return None, None
     
-    # Step 2: Process spectrum
-    progress_text.markdown("<div class='progress-text'>Step 2/4: Processing spectrum for prediction...</div>", unsafe_allow_html=True)
-    progress_bar.progress(50)
+    # Step 2: Processing spectrum
+    status_text.text("Processing spectrum for prediction...")
     scaled_spectrum = process_spectrum_for_prediction(filtered_file_path)
+    progress_bar.progress(50)
+    
     if scaled_spectrum is None:
-        progress_bar.empty()
-        progress_text.empty()
         return None, None
     
-    # Reshape and scale
+    # Step 3: Scaling spectrum
+    status_text.text("Preparing data for prediction...")
     scaled_spectrum = x_scaler.transform([scaled_spectrum])
+    progress_bar.progress(70)
     
-    # Step 3: Make predictions
-    progress_text.markdown("<div class='progress-text'>Step 3/4: Making predictions...</div>", unsafe_allow_html=True)
-    progress_bar.progress(75)
+    # Step 4: Making predictions
+    status_text.text("Making predictions...")
     tex_pred_scaled = rf_tex.predict(scaled_spectrum)
     tex_pred = tex_scaler.inverse_transform(tex_pred_scaled.reshape(-1, 1))[0,0]
     
     logn_pred_scaled = rf_logn.predict(scaled_spectrum)
     logn_pred = logn_scaler.inverse_transform(logn_pred_scaled.reshape(-1, 1))[0,0]
     
-    # Step 4: Finalizing
-    progress_text.markdown("<div class='progress-text'>Step 4/4: Finalizing results...</div>", unsafe_allow_html=True)
     progress_bar.progress(100)
-    time.sleep(0.5)  # Let the user see the progress complete
-    
+    status_text.text("Prediction completed!")
+    time.sleep(0.5)
     progress_bar.empty()
-    progress_text.empty()
+    status_text.empty()
     
     return tex_pred, logn_pred
 
@@ -568,11 +632,12 @@ with col2:
 
 # Descripción integrada en el código
 description_content = """
-<h3>About AI-ITACA</h3>
+<div class="info-panel">
+<h3 style="color: #1E88E5; border-bottom: 2px solid #1E88E5; padding-bottom: 10px;">About AI-ITACA</h3>
 <p>AI-ITACA is a powerful tool for analyzing molecular spectra using machine learning models. 
 This version uses local models and filters instead of downloading them from cloud storage.</p>
 
-<h3>How to Use</h3>
+<h3 style="color: #1E88E5; border-bottom: 2px solid #1E88E5; padding-bottom: 10px;">How to Use</h3>
 <ol>
     <li>Upload your spectrum file (TXT, DAT, FITS, SPEC format)</li>
     <li>The system will automatically apply all available filters</li>
@@ -581,14 +646,15 @@ This version uses local models and filters instead of downloading them from clou
     <li>Download filtered spectra as needed</li>
 </ol>
 
-<h3>System Requirements</h3>
+<h3 style="color: #1E88E5; border-bottom: 2px solid #1E88E5; padding-bottom: 10px;">Supported Formats</h3>
 <ul>
-    <li>Local directory with models (RF_Models)</li>
-    <li>Local directory with filters (RF_Filters)</li>
-    <li>See documentation for required file structure</li>
+    <li><strong>TXT/DAT</strong>: Plain text files with two columns (frequency, intensity)</li>
+    <li><strong>FITS</strong>: Standard FITS format with spectral data</li>
+    <li><strong>SPEC</strong>: Spectral files with optional headers</li>
 </ul>
+</div>
 """
-st.markdown(f"<div class='description-panel'>{description_content}</div>", unsafe_allow_html=True)
+st.markdown(description_content, unsafe_allow_html=True)
 
 # =============================================
 # MAIN INTERFACE
@@ -607,7 +673,6 @@ if not st.session_state.resources_loaded:
     try:
         st.session_state.local_files['models'] = list_local_files(st.session_state.MODEL_DIR)
         st.session_state.local_files['filters'] = list_local_files(st.session_state.FILTER_DIR)
-        st.session_state.available_models = find_available_models(st.session_state.MODEL_DIR)
         st.session_state.resources_loaded = True
     except Exception as e:
         st.error(f"Error processing local files: {str(e)}")
@@ -627,13 +692,16 @@ with st.sidebar:
         st.subheader("Models Directory")
         st.code(f"./{st.session_state.MODEL_DIR}", language="bash")
         
-        # Display available models
-        if st.session_state.available_models:
-            st.markdown("**Available models:**")
-            for model in st.session_state.available_models:
-                st.markdown(f"- {model['name']}")
+        # Display model files in a compact way
+        if st.session_state.local_files['models']:
+            st.markdown("**Model files:**")
+            model_files_text = "\n".join(
+                f"- {file['path']} ({file['size']})" 
+                for file in st.session_state.local_files['models']
+            )
+            st.text_area("Model files list", value=model_files_text, height=150, label_visibility="collapsed")
         else:
-            st.warning("No valid model configurations found")
+            st.warning("No model files found")
     
     # Filters section
     if st.session_state.FILTER_DIR and os.path.exists(st.session_state.FILTER_DIR):
@@ -655,7 +723,6 @@ with st.sidebar:
     if st.button("🔄 Reload Resources"):
         st.session_state.local_files['models'] = list_local_files(st.session_state.MODEL_DIR)
         st.session_state.local_files['filters'] = list_local_files(st.session_state.FILTER_DIR)
-        st.session_state.available_models = find_available_models(st.session_state.MODEL_DIR)
         st.experimental_rerun()
 
 # File selector
@@ -663,6 +730,24 @@ input_file = st.sidebar.file_uploader(
     "Input Spectrum File",
     type=['.txt', '.dat', '.fits', '.spec'],
     help="Upload your spectrum file (TXT, DAT, FITS, SPEC)"
+)
+
+# Units Configuration
+st.sidebar.markdown("---")
+st.sidebar.subheader("Units Configuration")
+
+freq_unit = st.sidebar.selectbox(
+    "Frequency Units",
+    ["GHz", "MHz", "kHz", "Hz"],
+    index=0,
+    help="Select the frequency units for the input spectrum"
+)
+
+intensity_unit = st.sidebar.selectbox(
+    "Intensity Units",
+    ["K", "Jy"],
+    index=0,
+    help="Select the intensity units for the input spectrum"
 )
 
 # =============================================
@@ -674,15 +759,10 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
         tmp_path = tmp_file.name
     
     try:
-        # Read input spectrum and store in session state
+        # Read input spectrum
         input_freq, input_spec = robust_read_file(tmp_path)
         if input_freq is None:
             raise ValueError("Could not read the spectrum file")
-        
-        st.session_state.original_spectrum = {
-            'freq': input_freq,
-            'intensity': input_spec
-        }
         
         # Get all filter files
         filter_files = []
@@ -695,7 +775,7 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
             raise ValueError("No filter files found in the filters directory")
         
         # Process with all filters
-        st.session_state.filtered_spectra = []
+        filtered_results = []
         failed_filters = []
         
         with st.spinner("🔍 Applying filters..."):
@@ -723,11 +803,12 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
                         comments=''
                     )
                     
-                    st.session_state.filtered_spectra.append({
+                    filtered_results.append({
                         'name': result['filter_name'],
+                        'original_freq': input_freq,
+                        'original_intensity': input_spec,
                         'filtered_data': result,
-                        'output_path': output_path,
-                        'parent_dir': result['parent_dir']
+                        'output_path': output_path
                     })
                 else:
                     failed_filters.append(os.path.basename(filter_file))
@@ -736,10 +817,10 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
             status_text.empty()
         
         # Show results
-        if not st.session_state.filtered_spectra:
+        if not filtered_results:
             raise ValueError(f"No filters were successfully applied. {len(failed_filters)} filters failed.")
         
-        st.markdown(f'<div class="success-box">✅ Successfully applied {len(st.session_state.filtered_spectra)} filters</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="success-box">✅ Successfully applied {len(filtered_results)} filters</div>', unsafe_allow_html=True)
         
         if failed_filters:
             st.markdown(f'<div class="warning-box">⚠ Failed to apply {len(failed_filters)} filters: {", ".join(failed_filters)}</div>', unsafe_allow_html=True)
@@ -751,17 +832,17 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
             # Main interactive graph
             fig_main = go.Figure()
             
-            # Original spectrum (from session state)
+            # Original spectrum
             fig_main.add_trace(go.Scatter(
-                x=st.session_state.original_spectrum['freq'],
-                y=st.session_state.original_spectrum['intensity'],
+                x=input_freq,
+                y=input_spec,
                 mode='lines',
                 name='Original Spectrum',
                 line=dict(color='white', width=2))
             )
             
             # Add all filtered spectra
-            for result in st.session_state.filtered_spectra:
+            for result in filtered_results:
                 fig_main.add_trace(go.Scatter(
                     x=result['filtered_data']['freq'],
                     y=result['filtered_data']['intensity'],
@@ -772,8 +853,8 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
             
             fig_main.update_layout(
                 title="Spectrum Filtering Results",
-                xaxis_title="Frequency (GHz)",
-                yaxis_title="Intensity (K)",
+                xaxis_title=f"Frequency ({freq_unit})",
+                yaxis_title=f"Intensity ({intensity_unit})",
                 hovermode="x unified",
                 height=600,
                 plot_bgcolor='#0D0F14',
@@ -785,14 +866,16 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
                     y=1.02,
                     xanchor="right",
                     x=1
-                )
+                ),
+                xaxis=dict(gridcolor='#3A3A3A'),
+                yaxis=dict(gridcolor='#3A3A3A')
             )
             st.plotly_chart(fig_main, use_column_width=True)
         
         with tab2:
             # Details for each filter
-            for result in st.session_state.filtered_spectra:
-                with st.expander(f"Filter: {result['name']} (from {result['parent_dir']})", expanded=True):
+            for result in filtered_results:
+                with st.expander(f"Filter: {result['name']} (from {result['filtered_data']['parent_dir']})", expanded=True):
                     col1, col2 = st.columns(2)
                     
                     with col1:
@@ -810,7 +893,10 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
                             height=300,
                             plot_bgcolor='#0D0F14',
                             paper_bgcolor='#0D0F14',
-                            showlegend=False
+                            showlegend=False,
+                            font=dict(color='white'),
+                            xaxis=dict(gridcolor='#3A3A3A'),
+                            yaxis=dict(gridcolor='#3A3A3A')
                         )
                         st.plotly_chart(fig_filter, use_column_width=True)
                     
@@ -818,8 +904,8 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
                         # Original vs filtered comparison
                         fig_compare = go.Figure()
                         fig_compare.add_trace(go.Scatter(
-                            x=st.session_state.original_spectrum['freq'],
-                            y=st.session_state.original_spectrum['intensity'],
+                            x=result['original_freq'],
+                            y=result['original_intensity'],
                             mode='lines',
                             name='Original',
                             line=dict(color='white', width=1))
@@ -836,7 +922,10 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
                             height=300,
                             plot_bgcolor='#0D0F14',
                             paper_bgcolor='#0D0F14',
-                            showlegend=False
+                            showlegend=False,
+                            font=dict(color='white'),
+                            xaxis=dict(gridcolor='#3A3A3A'),
+                            yaxis=dict(gridcolor='#3A3A3A')
                         )
                         st.plotly_chart(fig_compare, use_column_width=True)
                     
@@ -857,7 +946,7 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
             
             # Find the CH3OCHO filtered file
             ch3ocho_result = None
-            for result in st.session_state.filtered_spectra:
+            for result in filtered_results:
                 if "CH3OCHO" in result['name'].upper():
                     ch3ocho_result = result
                     break
@@ -865,67 +954,39 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
             if ch3ocho_result:
                 st.success(f"Found CH3OCHO filtered spectrum: {ch3ocho_result['name']}")
                 
-                # Model selection dropdown
-                if st.session_state.available_models:
-                    model_names = [model['name'] for model in st.session_state.available_models]
-                    selected_model = st.selectbox(
-                        "Select model to use for prediction:",
-                        model_names,
-                        index=0,
-                        key="model_selector"
-                    )
+                if st.button("Run CH3OCHO Prediction"):
+                    with st.spinner("Running prediction for CH3OCHO..."):
+                        tex_pred, logn_pred = run_prediction(ch3ocho_result['output_path'], st.session_state.MODEL_DIR)
                     
-                    # Get the path of the selected model
-                    selected_model_path = next(
-                        (model['path'] for model in st.session_state.available_models 
-                         if model['name'] == selected_model),
-                        None
-                    )
-                    
-                    # Create a container for the progress display
-                    progress_container = st.empty()
-                    
-                    if st.button("Run CH3OCHO Prediction"):
-                        if selected_model_path:
-                            tex_pred, logn_pred = run_prediction(
-                                ch3ocho_result['output_path'], 
-                                selected_model_path,
-                                progress_container
-                            )
+                    if tex_pred is not None and logn_pred is not None:
+                        st.session_state.prediction_results = {
+                            'tex': tex_pred,
+                            'logn': logn_pred
+                        }
                         
-                            if tex_pred is not None and logn_pred is not None:
-                                st.session_state.prediction_results = {
-                                    'tex': tex_pred,
-                                    'logn': logn_pred
-                                }
-                                
-                                st.markdown("### Prediction Results")
-                                col1, col2 = st.columns(2)
-                                
-                                with col1:
-                                    st.metric(label="Predicted Tex", value=f"{tex_pred:.2f} K")
-                                
-                                with col2:
-                                    st.metric(label="Predicted LogN", value=f"{logn_pred:.2f}")
-                                
-                                # Plot results
-                                st.markdown("### Prediction Visualization")
-                                fig = plot_prediction_results(tex_pred, logn_pred)
-                                st.pyplot(fig)
-                                
-                                # Download results
-                                st.download_button(
-                                    label="Download Prediction Results",
-                                    data=f"Tex: {tex_pred:.2f} K\nLogN: {logn_pred:.2f}",
-                                    file_name="ch3ocho_prediction_results.txt",
-                                    mime='text/plain'
-                                )
-                            else:
-                                st.error("Prediction failed. Please check the logs for errors.")
-                        else:
-                            st.error("Selected model path not found")
-                else:
-                    st.error("No models available for prediction")
+                        st.markdown("### Prediction Results")
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            st.metric(label="Predicted Tex", value=f"{tex_pred:.2f} K")
+                        
+                        with col2:
+                            st.metric(label="Predicted LogN", value=f"{logn_pred:.2f}")
+                        
+                        # Plot results
+                        st.markdown("### Prediction Visualization")
+                        fig = plot_prediction_results(tex_pred, logn_pred)
+                        st.pyplot(fig)
+                        
+                        # Download results
+                        st.download_button(
+                            label="Download Prediction Results",
+                            data=f"Tex: {tex_pred:.2f} K\nLogN: {logn_pred:.2f}",
+                            file_name="ch3ocho_prediction_results.txt",
+                            mime='text/plain'
+                        )
+                    else:
+                        st.error("Prediction failed. Please check the logs for errors.")
             else:
                 st.warning("No CH3OCHO filtered spectrum found. Please ensure the CH3OCHO filter was applied successfully.")
     
@@ -960,17 +1021,14 @@ st.sidebar.markdown("""
 3. View results in the interactive tabs
 4. Download filtered spectra as needed
 
-**Required Local Files:**
-- RF_Models/ with subdirectories containing:
-  - random_forest_tex.pkl
-  - random_forest_logn.pkl
-  - x_scaler.pkl
-  - tex_scaler.pkl
-  - logn_scaler.pkl
-- RF_Filters/ with spectral filter .txt files
-
 **Supported formats:**
 - Text files (.txt, .dat)
 - FITS files (.fits)
 - Spectrum files (.spec)
+
+**Interactive Plot Controls:**
+- 🔍 Zoom: Click and drag to select area
+- 🖱️ Hover: View exact values
+- 🔄 Reset: Double-click
+- 🏎️ Pan: Shift+click+drag
 """)
