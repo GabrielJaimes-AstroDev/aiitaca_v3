@@ -3,7 +3,6 @@ import os
 import numpy as np
 import tempfile
 import plotly.graph_objects as go
-import gdown
 import time
 from scipy.interpolate import interp1d
 from astropy.io import fits
@@ -16,13 +15,20 @@ from io import StringIO
 import matplotlib.pyplot as plt
 
 # =============================================
+# CONFIGURACIÓN DE PATHS LOCALES
+# =============================================
+# Configura estas rutas según tu estructura de directorios
+LOCAL_MODEL_DIR = "RF_Models/1.ML_Performance_RDF_CH3OCHO_Noisy_Weight3_Sigma0_001_T1"
+LOCAL_FILTER_DIR = "RF_Filters"
+
+# =============================================
 # INITIALIZE SESSION STATE
 # =============================================
-if not hasattr(st.session_state, 'resources_downloaded'):
-    st.session_state.resources_downloaded = False
+if not hasattr(st.session_state, 'resources_loaded'):
+    st.session_state.resources_loaded = False
     st.session_state.MODEL_DIR = None
     st.session_state.FILTER_DIR = None
-    st.session_state.downloaded_files = {'models': [], 'filters': []}
+    st.session_state.local_files = {'models': [], 'filters': []}
     st.session_state.prediction_models_loaded = False
     st.session_state.prediction_results = None
 
@@ -38,15 +44,86 @@ st.set_page_config(
 # =============================================
 # CSS STYLES (from external file)
 # =============================================
-with open('styles.txt', 'r') as f:
-    css_styles = f.read()
-st.markdown(f"<style>{css_styles}</style>", unsafe_allow_html=True)
+# Estilos CSS integrados para no depender de archivo externo
+css_styles = """
+<style>
+.main-title {
+    font-size: 28px !important;
+    font-weight: bold !important;
+    color: #FFFFFF !important;
+    margin-bottom: 0.2rem !important;
+}
+.subtitle {
+    font-size: 18px !important;
+    color: #BBBBBB !important;
+    margin-bottom: 1.5rem !important;
+}
+.description-panel {
+    background-color: #1E1E1E;
+    padding: 15px;
+    border-radius: 10px;
+    margin-bottom: 20px;
+    border-left: 5px solid #4CAF50;
+}
+.success-box {
+    background-color: #2E7D32;
+    color: white;
+    padding: 10px;
+    border-radius: 5px;
+    margin: 10px 0;
+}
+.warning-box {
+    background-color: #FF8F00;
+    color: white;
+    padding: 10px;
+    border-radius: 5px;
+    margin: 10px 0;
+}
+.error-box {
+    background-color: #C62828;
+    color: white;
+    padding: 10px;
+    border-radius: 5px;
+    margin: 10px 0;
+}
+.tree-view {
+    font-family: monospace;
+    margin-left: 15px;
+}
+.directory {
+    color: #4FC3F7;
+    margin: 5px 0;
+    font-weight: bold;
+}
+.file {
+    color: #E0E0E0;
+    margin-left: 20px;
+}
+.size {
+    color: #FF9800;
+    font-style: italic;
+}
+.file-explorer-header {
+    font-size: 18px;
+    font-weight: bold;
+    color: #4FC3F7;
+    margin-bottom: 10px;
+    border-bottom: 1px solid #444;
+    padding-bottom: 5px;
+}
+.file-explorer-item {
+    padding: 5px;
+    border-bottom: 1px dotted #444;
+}
+</style>
+"""
+st.markdown(css_styles, unsafe_allow_html=True)
 
 # =============================================
 # HELPER FUNCTIONS
 # =============================================
-def list_downloaded_files(directory):
-    """Recursively list all downloaded files with detailed information"""
+def list_local_files(directory):
+    """Recursively list all local files with detailed information"""
     file_list = []
     try:
         for root, dirs, files in os.walk(directory):
@@ -113,49 +190,6 @@ def display_directory_tree(directory, max_depth=3, current_depth=0):
     
     tree_html += "</div>"
     return tree_html
-
-def download_google_drive_folder(folder_url, output_dir):
-    """Recursively download all content from a Google Drive folder"""
-    try:
-        folder_id = folder_url.split('folders/')[-1].split('?')[0]
-        shutil.rmtree(output_dir, ignore_errors=True)
-        os.makedirs(output_dir, exist_ok=True)
-        
-        gdown.download_folder(
-            id=folder_id,
-            output=output_dir,
-            quiet=True,
-            use_cookies=False,
-            remaining_ok=True
-        )
-        return True
-    except Exception as e:
-        st.error(f"Error downloading folder: {str(e)}")
-        return False
-
-def download_resources():
-    """Download all required resources"""
-    # Load URLs from external file
-    with open('urls.txt', 'r') as f:
-        urls = f.read().splitlines()
-    
-    MODEL_FOLDER_URL = urls[0]  # First line is models URL
-    FILTER_FOLDER_URL = urls[1]  # Second line is filters URL
-    
-    MODEL_DIR = "downloaded_models"
-    FILTER_DIR = "downloaded_filters"
-    
-    # Download models
-    with st.spinner("🔽 Downloading models (this may take several minutes)..."):
-        if not download_google_drive_folder(MODEL_FOLDER_URL, MODEL_DIR):
-            return None, None
-    
-    # Download filters
-    with st.spinner("🔽 Downloading filters..."):
-        if not download_google_drive_folder(FILTER_FOLDER_URL, FILTER_DIR):
-            return None, None
-    
-    return MODEL_DIR, FILTER_DIR
 
 def robust_read_file(file_path):
     """Read spectrum or filter files with robust format handling"""
@@ -319,7 +353,7 @@ def load_prediction_models(model_dir):
 
         # Debug: Mostrar rutas cargadas
         st.success("Modelos cargados correctamente desde:")
-        st.json({k: v.replace(model_dir, "./downloaded_models/") for k, v in found_files.items()})
+        st.json({k: v.replace(model_dir, "./RF_Models/") for k, v in found_files.items()})
         
         return rf_tex, rf_logn, x_scaler, tex_scaler, logn_scaler
 
@@ -460,35 +494,60 @@ with col2:
     st.markdown('<p class="main-title">AI-ITACA | Artificial Intelligence Integral Tool for AstroChemical Analysis</p>', unsafe_allow_html=True)
     st.markdown('<p class="subtitle">Molecular Spectrum Analyzer</p>', unsafe_allow_html=True)
 
-# Load description from external file
-with open('description.txt', 'r') as f:
-    description_content = f.read()
+# Descripción integrada en el código
+description_content = """
+<h3>About AI-ITACA</h3>
+<p>AI-ITACA is a powerful tool for analyzing molecular spectra using machine learning models. 
+This version uses local models and filters instead of downloading them from cloud storage.</p>
+
+<h3>How to Use</h3>
+<ol>
+    <li>Upload your spectrum file (TXT, DAT, FITS, SPEC format)</li>
+    <li>The system will automatically apply all available filters</li>
+    <li>View results in the interactive tabs</li>
+    <li>Make predictions for CH3OCHO parameters</li>
+    <li>Download filtered spectra as needed</li>
+</ol>
+
+<h3>System Requirements</h3>
+<ul>
+    <li>Local directory with models (RF_Models)</li>
+    <li>Local directory with filters (RF_Filters)</li>
+    <li>See documentation for required file structure</li>
+</ul>
+"""
 st.markdown(f"<div class='description-panel'>{description_content}</div>", unsafe_allow_html=True)
 
 # =============================================
 # MAIN INTERFACE
 # =============================================
-# Download resources on startup
-if not st.session_state.resources_downloaded:
-    st.session_state.MODEL_DIR, st.session_state.FILTER_DIR = download_resources()
-    if st.session_state.MODEL_DIR and st.session_state.FILTER_DIR:
-        try:
-            st.session_state.downloaded_files['models'] = list_downloaded_files(st.session_state.MODEL_DIR)
-            st.session_state.downloaded_files['filters'] = list_downloaded_files(st.session_state.FILTER_DIR)
-            st.session_state.resources_downloaded = True
-            st.experimental_rerun()
-        except Exception as e:
-            st.error(f"Error processing downloaded files: {str(e)}")
-            st.session_state.resources_downloaded = False
+# Load local resources on startup
+if not st.session_state.resources_loaded:
+    st.session_state.MODEL_DIR = LOCAL_MODEL_DIR
+    st.session_state.FILTER_DIR = LOCAL_FILTER_DIR
+    
+    # Verify paths exist
+    if not os.path.exists(st.session_state.MODEL_DIR):
+        st.error(f"Model directory not found: {st.session_state.MODEL_DIR}")
+    if not os.path.exists(st.session_state.FILTER_DIR):
+        st.warning(f"Filter directory not found: {st.session_state.FILTER_DIR}")
+    
+    try:
+        st.session_state.local_files['models'] = list_local_files(st.session_state.MODEL_DIR)
+        st.session_state.local_files['filters'] = list_local_files(st.session_state.FILTER_DIR)
+        st.session_state.resources_loaded = True
+    except Exception as e:
+        st.error(f"Error processing local files: {str(e)}")
+        st.session_state.resources_loaded = False
 
 # =============================================
 # SIDEBAR - CONFIGURATION
 # =============================================
 st.sidebar.title("Configuration")
 
-# Show downloaded resources
+# Show local resources
 with st.sidebar:
-    st.header("📁 Downloaded Resources")
+    st.header("📁 Local Resources")
     
     # Models section
     if st.session_state.MODEL_DIR and os.path.exists(st.session_state.MODEL_DIR):
@@ -496,11 +555,11 @@ with st.sidebar:
         st.code(f"./{st.session_state.MODEL_DIR}", language="bash")
         
         # Display model files in a compact way
-        if st.session_state.downloaded_files['models']:
+        if st.session_state.local_files['models']:
             st.markdown("**Model files:**")
             model_files_text = "\n".join(
                 f"- {file['path']} ({file['size']})" 
-                for file in st.session_state.downloaded_files['models']
+                for file in st.session_state.local_files['models']
             )
             st.text_area("Model files list", value=model_files_text, height=150, label_visibility="collapsed")
         else:
@@ -512,24 +571,21 @@ with st.sidebar:
         st.code(f"./{st.session_state.FILTER_DIR}", language="bash")
         
         # Display filter files in a compact way
-        if st.session_state.downloaded_files['filters']:
+        if st.session_state.local_files['filters']:
             st.markdown("**Filter files:**")
             filter_files_text = "\n".join(
                 f"- {file['path']} ({file['size']})" 
-                for file in st.session_state.downloaded_files['filters']
+                for file in st.session_state.local_files['filters']
             )
             st.text_area("Filter files list", value=filter_files_text, height=150, label_visibility="collapsed")
         else:
             st.warning("No filter files found")
 
-    # Button to retry download
-    if st.button("🔄 Retry Download Resources"):
-        st.session_state.MODEL_DIR, st.session_state.FILTER_DIR = download_resources()
-        if st.session_state.MODEL_DIR and st.session_state.FILTER_DIR:
-            st.session_state.downloaded_files['models'] = list_downloaded_files(st.session_state.MODEL_DIR)
-            st.session_state.downloaded_files['filters'] = list_downloaded_files(st.session_state.FILTER_DIR)
-            st.session_state.resources_downloaded = True
-            st.experimental_rerun()
+    # Button to reload resources
+    if st.button("🔄 Reload Resources"):
+        st.session_state.local_files['models'] = list_local_files(st.session_state.MODEL_DIR)
+        st.session_state.local_files['filters'] = list_local_files(st.session_state.FILTER_DIR)
+        st.experimental_rerun()
 
 # File selector
 input_file = st.sidebar.file_uploader(
@@ -778,13 +834,14 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
 elif not st.session_state.MODEL_DIR or not st.session_state.FILTER_DIR:
     st.markdown("""
     <div class="error-box">
-    ❌ Required resources could not be downloaded.<br><br>
-    Possible solutions:
+    ❌ Required local resources not found.<br><br>
+    Please ensure you have:
     <ol>
-        <li>Click the 'Retry Download Resources' button in the sidebar</li>
-        <li>Check your internet connection</li>
-        <li>Try again later</li>
+        <li>Created a 'RF_Models' directory with the model files</li>
+        <li>Created a 'RF_Filters' directory with filter files</li>
+        <li>Placed them in the correct location</li>
     </ol>
+    Click the 'Reload Resources' button in the sidebar after setting up the directories.
     </div>
     """, unsafe_allow_html=True)
 else:
@@ -800,10 +857,17 @@ st.sidebar.markdown("""
 3. View results in the interactive tabs
 4. Download filtered spectra as needed
 
+**Required Local Files:**
+- RF_Models/ with:
+  - random_forest_tex.pkl
+  - random_forest_logn.pkl
+  - x_scaler.pkl
+  - tex_scaler.pkl
+  - logn_scaler.pkl
+- RF_Filters/ with spectral filter .txt files
+
 **Supported formats:**
 - Text files (.txt, .dat)
 - FITS files (.fits)
 - Spectrum files (.spec)
-
-**Note:** First-time setup may take a few minutes to download all required resources.
 """)
