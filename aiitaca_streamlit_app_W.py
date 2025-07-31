@@ -525,7 +525,7 @@ with st.sidebar:
             st.session_state.downloaded_files['models'] = list_downloaded_files(st.session_state.MODEL_DIR)
             st.session_state.downloaded_files['filters'] = list_downloaded_files(st.session_state.FILTER_DIR)
             st.session_state.resources_downloaded = True
-            st.rerun()
+            st.experimental_rerun()
 
 # File selector
 input_file = st.sidebar.file_uploader(
