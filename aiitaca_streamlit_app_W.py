@@ -62,7 +62,7 @@ def initialize_session_state():
     """Inicializa todas las variables de estado necesarias"""
     if 'resources_downloaded' not in st.session_state:
         st.session_state.resources_downloaded = False
-        st.session_state.MODEL_DIR = "/RF_Models"  # Ruta local a los modelos
+        st.session_state.MODEL_DIR = "/RF_Models/"  # Ruta local a los modelos
         st.session_state.FILTER_DIR = None
         st.session_state.downloaded_files = {'models': [], 'filters': []}
         st.session_state.prediction_models_loaded = False
