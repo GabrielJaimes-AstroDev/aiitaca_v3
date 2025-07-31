@@ -9,22 +9,15 @@ from scipy.interpolate import interp1d
 from astropy.io import fits
 import shutil
 from glob import glob
-import joblib
-import pandas as pd
-import warnings
-from io import StringIO
-import matplotlib.pyplot as plt
 
 # =============================================
 # INITIALIZE SESSION STATE
 # =============================================
 if not hasattr(st.session_state, 'resources_downloaded'):
     st.session_state.resources_downloaded = False
-    st.session_state.MODEL_DIR = None
-    st.session_state.FILTER_DIR = None
+    st.session_state.MODEL_DIR = "downloaded_models"  # Local models directory
+    st.session_state.FILTER_DIR = "downloaded_filters"  # Local filters directory
     st.session_state.downloaded_files = {'models': [], 'filters': []}
-    st.session_state.prediction_models_loaded = False
-    st.session_state.prediction_results = None
 
 # =============================================
 # PAGE CONFIGURATION
@@ -113,49 +106,6 @@ def display_directory_tree(directory, max_depth=3, current_depth=0):
     
     tree_html += "</div>"
     return tree_html
-
-def download_google_drive_folder(folder_url, output_dir):
-    """Recursively download all content from a Google Drive folder"""
-    try:
-        folder_id = folder_url.split('folders/')[-1].split('?')[0]
-        shutil.rmtree(output_dir, ignore_errors=True)
-        os.makedirs(output_dir, exist_ok=True)
-        
-        gdown.download_folder(
-            id=folder_id,
-            output=output_dir,
-            quiet=True,
-            use_cookies=False,
-            remaining_ok=True
-        )
-        return True
-    except Exception as e:
-        st.error(f"Error downloading folder: {str(e)}")
-        return False
-
-def download_resources():
-    """Download all required resources"""
-    # Load URLs from external file
-    with open('urls.txt', 'r') as f:
-        urls = f.read().splitlines()
-    
-    MODEL_FOLDER_URL = urls[0]  # First line is models URL
-    FILTER_FOLDER_URL = urls[1]  # Second line is filters URL
-    
-    MODEL_DIR = "downloaded_models"
-    FILTER_DIR = "downloaded_filters"
-    
-    # Download models
-    with st.spinner("🔽 Downloading models (this may take several minutes)..."):
-        if not download_google_drive_folder(MODEL_FOLDER_URL, MODEL_DIR):
-            return None, None
-    
-    # Download filters
-    with st.spinner("🔽 Downloading filters..."):
-        if not download_google_drive_folder(FILTER_FOLDER_URL, FILTER_DIR):
-            return None, None
-    
-    return MODEL_DIR, FILTER_DIR
 
 def robust_read_file(file_path):
     """Read spectrum or filter files with robust format handling"""
@@ -280,170 +230,6 @@ def display_file_explorer(files, title, file_type='models'):
                     """, unsafe_allow_html=True)
 
 # =============================================
-# PREDICTION FUNCTIONS
-# =============================================
-def load_prediction_models(model_dir):
-    """Load the machine learning models for prediction"""
-    try:
-        # Find model files
-        model_files = []
-        for root, _, files in os.walk(model_dir):
-            for file in files:
-                if file.endswith('.pkl') and 'random_forest' in file.lower():
-                    model_files.append(os.path.join(root, file))
-        
-        if len(model_files) < 4:
-            st.error("Not all required model files found")
-            return None, None, None, None, None
-        
-        # Load models and scalers
-        rf_tex = None
-        rf_logn = None
-        x_scaler = None
-        tex_scaler = None
-        logn_scaler = None
-        
-        for model_file in model_files:
-            if 'random_forest_tex' in model_file.lower():
-                rf_tex = joblib.load(model_file)
-            elif 'random_forest_logn' in model_file.lower():
-                rf_logn = joblib.load(model_file)
-            elif 'x_scaler' in model_file.lower():
-                x_scaler = joblib.load(model_file)
-            elif 'tex_scaler' in model_file.lower():
-                tex_scaler = joblib.load(model_file)
-            elif 'logn_scaler' in model_file.lower():
-                logn_scaler = joblib.load(model_file)
-        
-        if all([rf_tex, rf_logn, x_scaler, tex_scaler, logn_scaler]):
-            return rf_tex, rf_logn, x_scaler, tex_scaler, logn_scaler
-        else:
-            st.error("Some model components could not be loaded")
-            return None, None, None, None, None
-            
-    except Exception as e:
-        st.error(f"Error loading prediction models: {str(e)}")
-        return None, None, None, None, None
-
-def process_spectrum_for_prediction(file_path, interpolation_length=64610, min_required_points=1000):
-    """Process spectrum for prediction"""
-    try:
-        with open(file_path, 'r') as f:
-            lines = f.readlines()   
-        
-        data_lines = []
-        for line in lines:
-            stripped = line.strip()
-            if stripped and not stripped.startswith(('!', '//', '#')):
-                parts = stripped.split()
-                if len(parts) >= 2:
-                    try:
-                        float(parts[0]), float(parts[1])
-                        data_lines.append(line)
-                    except ValueError:
-                        continue
-        
-        if not data_lines:
-            st.error("No numeric data found in test spectrum")
-            return None
-        
-        data = pd.read_csv(StringIO('\n'.join(data_lines)), 
-                         sep='\s+', header=None, names=['freq', 'intensity'],
-                         dtype=np.float32)
-        
-        data = data.replace([np.inf, -np.inf], np.nan).dropna()
-        
-        if len(data) < min_required_points:
-            st.error(f"Test spectrum has too few points ({len(data)})")
-            return None
-        
-        min_freq = data['freq'].min()
-        max_freq = data['freq'].max()
-        freq_range = max_freq - min_freq
-        if freq_range == 0:
-            st.error("Zero frequency range in test spectrum")
-            return None
-        
-        normalized_freq = (data['freq'] - min_freq) / freq_range
-        
-        interp_func = interp1d(normalized_freq, data['intensity'], 
-                              kind='linear', bounds_error=False, 
-                              fill_value=(data['intensity'].iloc[0], data['intensity'].iloc[-1]))
-        new_freq = np.linspace(0, 1, interpolation_length)
-        interpolated_intensity = interp_func(new_freq).astype(np.float32)
-        
-        if np.any(np.isnan(interpolated_intensity)):
-            nan_indices = np.where(np.isnan(interpolated_intensity))[0]
-            for idx in nan_indices:
-                left_idx = max(0, idx-1)
-                right_idx = min(interpolation_length-1, idx+1)
-                interpolated_intensity[idx] = np.mean(interpolated_intensity[[left_idx, right_idx]])
-        
-        min_intensity = np.min(interpolated_intensity)
-        max_intensity = np.max(interpolated_intensity)
-        if max_intensity != min_intensity:
-            scaled_intensity = (interpolated_intensity - min_intensity) / (max_intensity - min_intensity)
-        else:
-            scaled_intensity = np.zeros_like(interpolated_intensity)
-        
-        return scaled_intensity
-    except Exception as e:
-        st.error(f"Error processing test spectrum: {str(e)}")
-        return None
-
-def plot_prediction_results(tex_pred, logn_pred):
-    """Plot the prediction results"""
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
-    
-    # LogN plot
-    ax1.scatter(18.1857, logn_pred, c='red', s=200, edgecolors='black')
-    ax1.annotate(f"Pred: {logn_pred:.2f}", 
-                (18.1857, logn_pred),
-                textcoords="offset points",
-                xytext=(15,15), ha='center', fontsize=12, color='red')
-    ax1.set_xlabel('LogN de referencia')
-    ax1.set_ylabel('LogN predicho')
-    ax1.set_title('Predicción de LogN')
-    
-    # Tex plot
-    ax2.scatter(203.492, tex_pred, c='red', s=200, edgecolors='black')
-    ax2.annotate(f"Pred: {tex_pred:.1f}", 
-                (203.492, tex_pred),
-                textcoords="offset points",
-                xytext=(15,15), ha='center', fontsize=12, color='red')
-    ax2.set_xlabel('Tex de referencia (K)')
-    ax2.set_ylabel('Tex predicho (K)')
-    ax2.set_title('Predicción de Tex')
-    
-    plt.tight_layout()
-    return fig
-
-def run_prediction(filtered_file_path, model_dir):
-    """Run the full prediction pipeline"""
-    with st.spinner("Loading prediction models..."):
-        rf_tex, rf_logn, x_scaler, tex_scaler, logn_scaler = load_prediction_models(model_dir)
-    
-    if None in [rf_tex, rf_logn, x_scaler, tex_scaler, logn_scaler]:
-        return None, None
-    
-    with st.spinner("Processing spectrum for prediction..."):
-        scaled_spectrum = process_spectrum_for_prediction(filtered_file_path)
-        if scaled_spectrum is None:
-            return None, None
-        
-        # Reshape and scale
-        scaled_spectrum = x_scaler.transform([scaled_spectrum])
-    
-    with st.spinner("Making predictions..."):
-        tex_pred_scaled = rf_tex.predict(scaled_spectrum)
-        tex_pred = tex_scaler.inverse_transform(tex_pred_scaled.reshape(-1, 1))[0,0]
-        
-        logn_pred_scaled = rf_logn.predict(scaled_spectrum)
-        logn_pred = logn_scaler.inverse_transform(logn_pred_scaled.reshape(-1, 1))[0,0]
-    
-    return tex_pred, logn_pred
-
-# =============================================
 # HEADER
 # =============================================
 st.image("NGC6523_BVO_2.jpg", use_column_width=True)
@@ -464,32 +250,45 @@ st.markdown(f"<div class='description-panel'>{description_content}</div>", unsaf
 # =============================================
 # MAIN INTERFACE
 # =============================================
-# Download resources on startup
+# Verify local resources on startup
 if not st.session_state.resources_downloaded:
-    st.session_state.MODEL_DIR, st.session_state.FILTER_DIR = download_resources()
-    if st.session_state.MODEL_DIR and st.session_state.FILTER_DIR:
+    # Check if local directories exist
+    model_dir_exists = os.path.exists(st.session_state.MODEL_DIR)
+    filter_dir_exists = os.path.exists(st.session_state.FILTER_DIR)
+    
+    if model_dir_exists and filter_dir_exists:
         try:
             st.session_state.downloaded_files['models'] = list_downloaded_files(st.session_state.MODEL_DIR)
             st.session_state.downloaded_files['filters'] = list_downloaded_files(st.session_state.FILTER_DIR)
             st.session_state.resources_downloaded = True
-            st.experimental_rerun()
+            st.success("Local resources loaded successfully!")
         except Exception as e:
-            st.error(f"Error processing downloaded files: {str(e)}")
+            st.error(f"Error processing local files: {str(e)}")
             st.session_state.resources_downloaded = False
+    else:
+        missing_dirs = []
+        if not model_dir_exists:
+            missing_dirs.append(f"Models directory: {st.session_state.MODEL_DIR}")
+        if not filter_dir_exists:
+            missing_dirs.append(f"Filters directory: {st.session_state.FILTER_DIR}")
+        
+        error_msg = "Required local directories not found:\n" + "\n".join(missing_dirs)
+        st.error(error_msg)
+        st.session_state.resources_downloaded = False
 
 # =============================================
 # SIDEBAR - CONFIGURATION
 # =============================================
 st.sidebar.title("Configuration")
 
-# Show downloaded resources
+# Show local resources
 with st.sidebar:
-    st.header("📁 Downloaded Resources")
+    st.header("📁 Local Resources")
     
     # Models section
     if st.session_state.MODEL_DIR and os.path.exists(st.session_state.MODEL_DIR):
         st.subheader("Models Directory")
-        st.code(f"./{st.session_state.MODEL_DIR}", language="bash")
+        st.code(f"{os.path.abspath(st.session_state.MODEL_DIR)}", language="bash")
         
         # Display model files in a compact way
         if st.session_state.downloaded_files['models']:
@@ -500,12 +299,12 @@ with st.sidebar:
             )
             st.text_area("Model files list", value=model_files_text, height=150, label_visibility="collapsed")
         else:
-            st.warning("No model files found")
+            st.warning("No model files found in the directory")
     
     # Filters section
     if st.session_state.FILTER_DIR and os.path.exists(st.session_state.FILTER_DIR):
         st.subheader("Filters Directory")
-        st.code(f"./{st.session_state.FILTER_DIR}", language="bash")
+        st.code(f"{os.path.abspath(st.session_state.FILTER_DIR)}", language="bash")
         
         # Display filter files in a compact way
         if st.session_state.downloaded_files['filters']:
@@ -516,16 +315,18 @@ with st.sidebar:
             )
             st.text_area("Filter files list", value=filter_files_text, height=150, label_visibility="collapsed")
         else:
-            st.warning("No filter files found")
+            st.warning("No filter files found in the directory")
 
-    # Button to retry download
-    if st.button("🔄 Retry Download Resources"):
-        st.session_state.MODEL_DIR, st.session_state.FILTER_DIR = download_resources()
-        if st.session_state.MODEL_DIR and st.session_state.FILTER_DIR:
+    # Button to refresh resources
+    if st.button("🔄 Refresh Resources"):
+        try:
             st.session_state.downloaded_files['models'] = list_downloaded_files(st.session_state.MODEL_DIR)
             st.session_state.downloaded_files['filters'] = list_downloaded_files(st.session_state.FILTER_DIR)
             st.session_state.resources_downloaded = True
-            st.rerun()
+            st.success("Resources refreshed successfully!")
+            st.experimental_rerun()
+        except Exception as e:
+            st.error(f"Error refreshing resources: {str(e)}")
 
 # File selector
 input_file = st.sidebar.file_uploader(
@@ -537,7 +338,7 @@ input_file = st.sidebar.file_uploader(
 # =============================================
 # MAIN PROCESSING
 # =============================================
-if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FILTER_DIR:
+if input_file is not None and st.session_state.resources_downloaded:
     with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
         tmp_file.write(input_file.getvalue())
         tmp_path = tmp_file.name
@@ -610,7 +411,7 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
             st.markdown(f'<div class="warning-box">⚠ Failed to apply {len(failed_filters)} filters: {", ".join(failed_filters)}</div>', unsafe_allow_html=True)
         
         # Show in tabs
-        tab1, tab2, tab3 = st.tabs(["Interactive Spectrum", "Filter Details", "CH3OCHO Prediction"])
+        tab1, tab2 = st.tabs(["Interactive Spectrum", "Filter Details"])
         
         with tab1:
             # Main interactive graph
@@ -715,74 +516,21 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
                             key=f"download_{result['name']}",
                             use_container_width=True
                         )
-        
-        with tab3:
-            # CH3OCHO Prediction Tab
-            st.markdown("<h2 style='text-align: center;'>CH3OCHO Spectral Prediction</h2>", unsafe_allow_html=True)
-            
-            # Find the CH3OCHO filtered file
-            ch3ocho_result = None
-            for result in filtered_results:
-                if "CH3OCHO" in result['name'].upper():
-                    ch3ocho_result = result
-                    break
-            
-            if ch3ocho_result:
-                st.success(f"Found CH3OCHO filtered spectrum: {ch3ocho_result['name']}")
-                
-                if st.button("Run CH3OCHO Prediction"):
-                    with st.spinner("Running prediction for CH3OCHO..."):
-                        tex_pred, logn_pred = run_prediction(ch3ocho_result['output_path'], st.session_state.MODEL_DIR)
-                    
-                    if tex_pred is not None and logn_pred is not None:
-                        st.session_state.prediction_results = {
-                            'tex': tex_pred,
-                            'logn': logn_pred
-                        }
-                        
-                        st.markdown("### Prediction Results")
-                        col1, col2 = st.columns(2)
-                        
-                        with col1:
-                            st.metric(label="Predicted Tex", value=f"{tex_pred:.2f} K")
-                        
-                        with col2:
-                            st.metric(label="Predicted LogN", value=f"{logn_pred:.2f}")
-                        
-                        # Plot results
-                        st.markdown("### Prediction Visualization")
-                        fig = plot_prediction_results(tex_pred, logn_pred)
-                        st.pyplot(fig)
-                        
-                        # Download results
-                        st.download_button(
-                            label="Download Prediction Results",
-                            data=f"Tex: {tex_pred:.2f} K\nLogN: {logn_pred:.2f}",
-                            file_name="ch3ocho_prediction_results.txt",
-                            mime='text/plain'
-                        )
-                    else:
-                        st.error("Prediction failed. Please check the logs for errors.")
-            else:
-                st.warning("No CH3OCHO filtered spectrum found. Please ensure the CH3OCHO filter was applied successfully.")
     
     except Exception as e:
         st.markdown(f'<div class="error-box">❌ Processing error: {str(e)}</div>', unsafe_allow_html=True)
     finally:
         os.unlink(tmp_path)
 
-elif not st.session_state.MODEL_DIR or not st.session_state.FILTER_DIR:
-    st.markdown("""
-    <div class="error-box">
-    ❌ Required resources could not be downloaded.<br><br>
-    Possible solutions:
-    <ol>
-        <li>Click the 'Retry Download Resources' button in the sidebar</li>
-        <li>Check your internet connection</li>
-        <li>Try again later</li>
-    </ol>
-    </div>
-    """, unsafe_allow_html=True)
+elif not st.session_state.resources_downloaded:
+    error_msg = (
+        "❌ Required local resources not found or could not be loaded.<br><br>"
+        "Please ensure the following directories exist:<br>"
+        f"<ul><li>Models directory: <code>{st.session_state.MODEL_DIR}</code></li>"
+        f"<li>Filters directory: <code>{st.session_state.FILTER_DIR}</code></li></ul>"
+        "Then click the 'Refresh Resources' button in the sidebar."
+    )
+    st.markdown(f'<div class="error-box">{error_msg}</div>', unsafe_allow_html=True)
 else:
     st.info("ℹ️ Please upload a spectrum file to begin analysis")
 
@@ -801,5 +549,5 @@ st.sidebar.markdown("""
 - FITS files (.fits)
 - Spectrum files (.spec)
 
-**Note:** First-time setup may take a few minutes to download all required resources.
+**Note:** The application uses pre-installed models and filters from local directories.
 """)
