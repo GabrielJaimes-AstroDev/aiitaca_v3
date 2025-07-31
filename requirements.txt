@@ -1,9 +1,10 @@
-streamlit==1.32.0
-numpy==1.24.0
-astropy==5.3.4
-scipy==1.10.1
-plotly==5.18.0
-joblib==1.3.2
-pandas==2.0.3
-matplotlib==3.7.2
-scikit-learn==1.3.2
+# Versiones estables y compatibles entre sí
+numpy==1.24.4             # Versión estable antes del cambio a numpy._core
+scipy==1.10.1             # Compatible con numpy 1.24.x
+scikit-learn==1.3.2       # Última versión compatible con numpy 1.24.x
+joblib==1.3.2             # Versión estable para scikit-learn 1.3.x
+astropy==5.3.4            # Compatible con numpy 1.24.x
+pandas==2.0.3             # Versión estable para numpy 1.24.x
+plotly==5.18.0            # Compatible con las versiones anteriores
+matplotlib==3.7.2         # Versión estable para este stack
+streamlit==1.32.0         # Compatible con todas las anteriores
