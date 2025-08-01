@@ -369,7 +369,7 @@ def find_available_models(model_dir):
     return available_models
 
 # =============================================
-# PREDICTION FUNCTIONS
+# PREDICTION FUNCTIONS (MODIFIED TO MATCH REFERENCE CODE)
 # =============================================
 def load_prediction_models(model_dir):
     """Busca recursivamente los archivos de modelos"""
@@ -415,7 +415,7 @@ def load_prediction_models(model_dir):
         return None, None, None, None, None
 
 def process_spectrum_for_prediction(file_path, interpolation_length=64610, min_required_points=1000):
-    """Process spectrum for prediction"""
+    """Process spectrum for prediction - Updated to match reference code"""
     try:
         with open(file_path, 'r') as f:
             lines = f.readlines()   
@@ -481,7 +481,7 @@ def process_spectrum_for_prediction(file_path, interpolation_length=64610, min_r
         return None
 
 def plot_prediction_results(tex_pred, logn_pred):
-    """Plot the prediction results"""
+    """Plot the prediction results - Updated to match reference code"""
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
     
     # LogN plot
@@ -508,7 +508,7 @@ def plot_prediction_results(tex_pred, logn_pred):
     return fig
 
 def run_prediction(filtered_file_path, model_dir, progress_container):
-    """Run the full prediction pipeline"""
+    """Run the full prediction pipeline - Updated to match reference code"""
     progress_text = progress_container.empty()
     progress_bar = progress_container.progress(0)
     
