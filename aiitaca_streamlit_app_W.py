@@ -304,98 +304,69 @@ def find_available_models(model_dir):
 # =============================================
 # PREDICTION FUNCTIONS (OPTIMIZED)
 # =============================================
-def load_prediction_models(model_dir):
-    """Load prediction models silently"""
-    required_files = {
-        'rf_tex': 'random_forest_tex.pkl',
-        'rf_logn': 'random_forest_logn.pkl',
-        'x_scaler': 'x_scaler.pkl',
-        'tex_scaler': 'tex_scaler.pkl',
-        'logn_scaler': 'logn_scaler.pkl'
-    }
 
-    try:
-        found_files = {}
-        for root, _, files in os.walk(model_dir):
-            for filename in files:
-                for key, req_file in required_files.items():
-                    if filename == req_file and key not in found_files:
-                        found_files[key] = os.path.join(root, filename)
-        
-        if len(found_files) != len(required_files):
+def load_prediction_models(model_dir):
+    """Load models without any output"""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        try:
+            rf_tex = joblib.load(os.path.join(model_dir, 'random_forest_tex.pkl'))
+            rf_logn = joblib.load(os.path.join(model_dir, 'random_forest_logn.pkl'))
+            x_scaler = joblib.load(os.path.join(model_dir, 'x_scaler.pkl'))
+            tex_scaler = joblib.load(os.path.join(model_dir, 'tex_scaler.pkl'))
+            logn_scaler = joblib.load(os.path.join(model_dir, 'logn_scaler.pkl'))
+            return rf_tex, rf_logn, x_scaler, tex_scaler, logn_scaler
+        except:
             return None, None, None, None, None
 
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            rf_tex = joblib.load(found_files['rf_tex'])
-            rf_logn = joblib.load(found_files['rf_logn'])
-            x_scaler = joblib.load(found_files['x_scaler'])
-            tex_scaler = joblib.load(found_files['tex_scaler'])
-            logn_scaler = joblib.load(found_files['logn_scaler'])
-
-        return rf_tex, rf_logn, x_scaler, tex_scaler, logn_scaler
-
-    except Exception as e:
-        return None, None, None, None, None
-
 def process_spectrum_for_prediction(file_path):
-    """Process spectrum for prediction without intermediate outputs"""
+    """Completely silent processing"""
     try:
         with open(file_path, 'r') as f:
-            lines = f.readlines()   
+            lines = [line.strip() for line in f if line.strip() and not line.strip().startswith(('!', '//', '#'))]
         
-        data_lines = []
-        for line in lines:
-            stripped = line.strip()
-            if stripped and not stripped.startswith(('!', '//', '#')):
-                parts = stripped.split()
-                if len(parts) >= 2:
-                    try:
-                        float(parts[0]), float(parts[1])
-                        data_lines.append(line)
-                    except ValueError:
-                        continue
+        data = pd.read_csv(StringIO('\n'.join(lines)), 
+                     sep='\s+', header=None, names=['freq', 'intensity'],
+                     dtype=np.float32).dropna()
         
-        if not data_lines or len(data_lines) < 1000:
+        if len(data) < 1000:
             return None
+            
+        freq = data['freq'].values
+        intensity = data['intensity'].values
         
-        data = pd.read_csv(StringIO('\n'.join(data_lines)), 
-                         sep='\s+', header=None, names=['freq', 'intensity'],
-                         dtype=np.float32)
+        normalized_freq = (freq - freq.min()) / (freq.max() - freq.min())
+        interp_func = interp1d(normalized_freq, intensity, kind='linear', 
+                              bounds_error=False, fill_value="extrapolate")
+        interpolated = interp_func(np.linspace(0, 1, 64610))
         
-        data = data.replace([np.inf, -np.inf], np.nan).dropna()
+        if np.any(np.isnan(interpolated)):
+            interpolated = np.nan_to_num(interpolated)
         
-        min_freq = data['freq'].min()
-        max_freq = data['freq'].max()
-        freq_range = max_freq - min_freq
-        if freq_range == 0:
-            return None
-        
-        normalized_freq = (data['freq'] - min_freq) / freq_range
-        
-        interp_func = interp1d(normalized_freq, data['intensity'], 
-                              kind='linear', bounds_error=False, 
-                              fill_value=(data['intensity'].iloc[0], data['intensity'].iloc[-1]))
-        new_freq = np.linspace(0, 1, 64610)
-        interpolated_intensity = interp_func(new_freq).astype(np.float32)
-        
-        if np.any(np.isnan(interpolated_intensity)):
-            nan_indices = np.where(np.isnan(interpolated_intensity))[0]
-            for idx in nan_indices:
-                left_idx = max(0, idx-1)
-                right_idx = min(64610-1, idx+1)
-                interpolated_intensity[idx] = np.mean(interpolated_intensity[[left_idx, right_idx]])
-        
-        min_intensity = np.min(interpolated_intensity)
-        max_intensity = np.max(interpolated_intensity)
-        if max_intensity != min_intensity:
-            scaled_intensity = (interpolated_intensity - min_intensity) / (max_intensity - min_intensity)
-        else:
-            scaled_intensity = np.zeros_like(interpolated_intensity)
-        
-        return scaled_intensity
-    except Exception:
+        if np.max(interpolated) != np.min(interpolated):
+            return (interpolated - np.min(interpolated)) / (np.max(interpolated) - np.min(interpolated))
+        return np.zeros_like(interpolated)
+    except:
         return None
+
+def run_prediction(filtered_file_path, model_dir):
+    """Completely clean prediction function"""
+    with st.spinner("Calculando predicción..."):
+        models = load_prediction_models(model_dir)
+        if None in models:
+            return None, None
+            
+        scaled_spectrum = process_spectrum_for_prediction(filtered_file_path)
+        if scaled_spectrum is None:
+            return None, None
+            
+        rf_tex, rf_logn, x_scaler, tex_scaler, logn_scaler = models
+        scaled_spectrum = x_scaler.transform([scaled_spectrum])
+        
+        tex_pred = tex_scaler.inverse_transform(rf_tex.predict(scaled_spectrum).reshape(-1, 1))[0,0]
+        logn_pred = logn_scaler.inverse_transform(rf_logn.predict(scaled_spectrum).reshape(-1, 1))[0,0]
+        
+        return tex_pred, logn_pred
 
 def plot_prediction_results(tex_pred, logn_pred):
     """Plot the prediction results cleanly"""
@@ -422,27 +393,6 @@ def plot_prediction_results(tex_pred, logn_pred):
     plt.tight_layout()
     return fig
 
-def run_prediction(filtered_file_path, model_dir):
-    """Run prediction silently and return results"""
-    with st.spinner("Calculando predicción..."):
-        rf_tex, rf_logn, x_scaler, tex_scaler, logn_scaler = load_prediction_models(model_dir)
-        
-        if None in [rf_tex, rf_logn, x_scaler, tex_scaler, logn_scaler]:
-            return None, None
-        
-        scaled_spectrum = process_spectrum_for_prediction(filtered_file_path)
-        if scaled_spectrum is None:
-            return None, None
-        
-        scaled_spectrum = x_scaler.transform([scaled_spectrum])
-        
-        tex_pred_scaled = rf_tex.predict(scaled_spectrum)
-        tex_pred = tex_scaler.inverse_transform(tex_pred_scaled.reshape(-1, 1))[0,0]
-        
-        logn_pred_scaled = rf_logn.predict(scaled_spectrum)
-        logn_pred = logn_scaler.inverse_transform(logn_pred_scaled.reshape(-1, 1))[0,0]
-        
-        return tex_pred, logn_pred
 
 # =============================================
 # HEADER
@@ -712,70 +662,42 @@ if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FI
         with tab3:
             st.markdown("<h2 style='text-align: center;'>CH3OCHO Spectral Prediction</h2>", unsafe_allow_html=True)
             
-            ch3ocho_result = None
-            for result in st.session_state.filtered_spectra:
-                if "CH3OCHO" in result['name'].upper():
-                    ch3ocho_result = result
-                    break
+            ch3ocho_result = next((r for r in st.session_state.filtered_spectra if "CH3OCHO" in r['name'].upper()), None)
             
             if ch3ocho_result:
-                st.success(f"Found CH3OCHO filtered spectrum: {ch3ocho_result['name']}")
+                st.success(f"CH3OCHO spectrum ready: {ch3ocho_result['name']}")
                 
                 if st.session_state.available_models:
-                    model_names = [model['name'] for model in st.session_state.available_models]
                     selected_model = st.selectbox(
-                        "Select model to use for prediction:",
-                        model_names,
-                        index=0,
+                        "Select prediction model:",
+                        [m['name'] for m in st.session_state.available_models],
                         key="model_selector"
                     )
                     
-                    selected_model_path = next(
-                        (model['path'] for model in st.session_state.available_models 
-                         if model['name'] == selected_model),
-                        None
-                    )
+                    model_path = next(m['path'] for m in st.session_state.available_models if m['name'] == selected_model)
                     
-                    if st.button("Run CH3OCHO Prediction"):
-                        if selected_model_path:
-                            tex_pred, logn_pred = run_prediction(
-                                ch3ocho_result['output_path'], 
-                                selected_model_path
-                            )
+                    if st.button("Run Prediction", key="run_prediction"):
+                        with st.spinner("Processing..."):
+                            tex_pred, logn_pred = run_prediction(ch3ocho_result['output_path'], model_path)
                         
-                            if tex_pred is not None and logn_pred is not None:
-                                st.session_state.prediction_results = {
-                                    'tex': tex_pred,
-                                    'logn': logn_pred
-                                }
-                                
-                                st.markdown("### Prediction Results")
-                                col1, col2 = st.columns(2)
-                                
-                                with col1:
-                                    st.metric(label="Predicted Tex", value=f"{tex_pred:.2f} K")
-                                
-                                with col2:
-                                    st.metric(label="Predicted LogN", value=f"{logn_pred:.2f}")
-                                
-                                st.markdown("### Prediction Visualization")
-                                fig = plot_prediction_results(tex_pred, logn_pred)
-                                st.pyplot(fig)
-                                
-                                st.download_button(
-                                    label="Download Prediction Results",
-                                    data=f"Tex: {tex_pred:.2f} K\nLogN: {logn_pred:.2f}",
-                                    file_name="ch3ocho_prediction_results.txt",
-                                    mime='text/plain'
-                                )
-                            else:
-                                st.error("Prediction failed. Please check the logs for errors.")
+                        if tex_pred and logn_pred:
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                st.metric("Predicted Tex", f"{tex_pred:.2f} K")
+                            with col2:
+                                st.metric("Predicted LogN", f"{logn_pred:.2f}")
+                            
+                            st.pyplot(plot_prediction_results(tex_pred, logn_pred))
+                            
+                            st.download_button(
+                                "Download Results",
+                                f"Tex: {tex_pred:.2f} K\nLogN: {logn_pred:.2f}",
+                                "prediction_results.txt"
+                            )
                         else:
-                            st.error("Selected model path not found")
-                else:
-                    st.error("No models available for prediction")
+                            st.error("Prediction failed - please check your input and models")
             else:
-                st.warning("No CH3OCHO filtered spectrum found. Please ensure the CH3OCHO filter was applied successfully.")
+                st.warning("No CH3OCHO spectrum found - check your filters")
     
     except Exception as e:
         st.markdown(f'<div class="error-box">❌ Processing error: {str(e)}</div>', unsafe_allow_html=True)
