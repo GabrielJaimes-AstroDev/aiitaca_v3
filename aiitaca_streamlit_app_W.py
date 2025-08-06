@@ -458,16 +458,10 @@ with col2:
     st.markdown('<p class="subtitle">Molecular Spectrum Analyzer</p>', unsafe_allow_html=True)
 
 description_content = """
-<h3>About AI-ITACA</h3>
-<p>AI-ITACA is a powerful tool for analyzing molecular spectra using machine learning models.</p>
-
-<h3>How to Use</h3>
-<ol>
-    <li>Upload your spectrum file (TXT, DAT, FITS, SPEC format)</li>
-    <li>The system will automatically apply all available filters</li>
-    <li>View results in the interactive tabs</li>
-    <li>Make predictions for CH3OCHO parameters</li>
-</ol>
+<div class="description-panel" style="text-align: justify;">
+A remarkable upsurge in the complexity of molecules identified in the interstellar medium (ISM) is currently occurring, with over 80 new species discovered in the last three years. A number of them have been emphasized by prebiotic experiments as vital molecular building blocks of life. Since our Solar System was formed from a molecular cloud in the ISM, it prompts the query as to whether the rich interstellar chemical reservoir could have played a role in the emergence of life. The improved sensitivities of state-of-the-art astronomical facilities, such as the Atacama Large Millimeter/submillimeter Array (ALMA) and the James Webb Space Telescope (JWST), are revolutionizing the discovery of new molecules in space. However, we are still just scraping the tip of the iceberg. We are far from knowing the complete catalogue of molecules that astrochemistry can offer, as well as the complexity they can reach.<br><br>
+<strong>Artificial Intelligence Integral Tool for AstroChemical Analysis (AI-ITACA)</strong>, proposes to combine complementary machine learning (ML) techniques to address all the challenges that astrochemistry is currently facing. AI-ITACA will significantly contribute to the development of new AI-based cutting-edge analysis software that will allow us to make a crucial leap in the characterization of the level of chemical complexity in the ISM, and in our understanding of the contribution that interstellar chemistry might have in the origin of life.
+</div>
 """
 st.markdown(f"<div class='description-panel'>{description_content}</div>", unsafe_allow_html=True)
 
@@ -777,4 +771,5 @@ st.sidebar.markdown("""
 - FITS files (.fits)
 - Spectrum files (.spec)
 """)
+
 
