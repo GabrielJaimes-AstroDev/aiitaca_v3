@@ -14,15 +14,11 @@ import warnings
 from io import StringIO
 import matplotlib.pyplot as plt
 
-# =============================================
-# CONFIGURACIÓN DE PATHS LOCALES
-# =============================================
+# Configuration constants
 LOCAL_MODEL_DIR = "RF_Models"
 LOCAL_FILTER_DIR = "RF_Filters"
 
-# =============================================
-# INITIALIZE SESSION STATE
-# =============================================
+# Session state initialization
 if not hasattr(st.session_state, 'resources_loaded'):
     st.session_state.resources_loaded = False
     st.session_state.MODEL_DIR = None
@@ -34,18 +30,14 @@ if not hasattr(st.session_state, 'resources_loaded'):
     st.session_state.filtered_spectra = []
     st.session_state.available_models = []
 
-# =============================================
-# PAGE CONFIGURATION
-# =============================================
+# Page setup
 st.set_page_config(
     layout="wide", 
     page_title="AI-ITACA | Spectrum Analyzer",
     page_icon="🔭" 
 )
 
-# =============================================
-# CSS STYLES
-# =============================================
+# CSS styles
 css_styles = """
 <style>
 .main-title {
@@ -141,11 +133,8 @@ css_styles = """
 """
 st.markdown(css_styles, unsafe_allow_html=True)
 
-# =============================================
-# HELPER FUNCTIONS
-# =============================================
+# Helper functions
 def list_local_files(directory):
-    """Recursively list all local files with detailed information"""
     file_list = []
     try:
         for root, dirs, files in os.walk(directory):
@@ -177,7 +166,6 @@ def list_local_files(directory):
     return file_list
 
 def get_file_size(path):
-    """Get file size in human-readable format"""
     size = os.path.getsize(path)
     for unit in ['B', 'KB', 'MB', 'GB']:
         if size < 1024.0:
@@ -186,7 +174,6 @@ def get_file_size(path):
     return f"{size:.1f} TB"
 
 def robust_read_file(file_path):
-    """Read spectrum or filter files with robust format handling"""
     try:
         if file_path.endswith('.fits'):
             with fits.open(file_path) as hdul:
@@ -224,7 +211,6 @@ def robust_read_file(file_path):
         return None, None
 
 def apply_spectral_filter(spectrum_freq, spectrum_intensity, filter_path):
-    """Apply spectral filter with robust handling"""
     try:
         filter_freq, filter_intensity = robust_read_file(filter_path)
         if filter_freq is None:
@@ -271,7 +257,6 @@ def apply_spectral_filter(spectrum_freq, spectrum_intensity, filter_path):
         return None
 
 def find_available_models(model_dir):
-    """Find all available model directories that contain the required files"""
     required_files = {
         'rf_tex': 'random_forest_tex.pkl',
         'rf_logn': 'random_forest_logn.pkl',
@@ -301,12 +286,8 @@ def find_available_models(model_dir):
     
     return available_models
 
-# =============================================
-# PREDICTION FUNCTIONS (OPTIMIZED)
-# =============================================
-
+# Prediction functions
 def load_prediction_models(model_dir):
-    """Load models without any output"""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         try:
@@ -320,7 +301,6 @@ def load_prediction_models(model_dir):
             return None, None, None, None, None
 
 def process_spectrum_for_prediction(file_path):
-    """Completely silent processing"""
     try:
         with open(file_path, 'r') as f:
             lines = [line.strip() for line in f if line.strip() and not line.strip().startswith(('!', '//', '#'))]
@@ -350,7 +330,6 @@ def process_spectrum_for_prediction(file_path):
         return None
 
 def run_prediction(filtered_file_path, model_dir):
-    """Completely clean prediction function"""
     with st.spinner("Calculando predicción..."):
         models = load_prediction_models(model_dir)
         if None in models:
@@ -369,7 +348,6 @@ def run_prediction(filtered_file_path, model_dir):
         return tex_pred, logn_pred
 
 def plot_prediction_results(tex_pred, logn_pred):
-    """Plot the prediction results cleanly"""
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
     
     ax1.scatter(18.1857, logn_pred, c='red', s=200, edgecolors='black')
@@ -393,10 +371,7 @@ def plot_prediction_results(tex_pred, logn_pred):
     plt.tight_layout()
     return fig
 
-
-# =============================================
-# HEADER
-# =============================================
+# UI components
 st.image("NGC6523_BVO_2.jpg", use_column_width=True)
 
 col1, col2 = st.columns([1, 3])
@@ -421,9 +396,7 @@ description_content = """
 """
 st.markdown(f"<div class='description-panel'>{description_content}</div>", unsafe_allow_html=True)
 
-# =============================================
-# MAIN INTERFACE
-# =============================================
+# Main processing logic
 if not st.session_state.resources_loaded:
     st.session_state.MODEL_DIR = LOCAL_MODEL_DIR
     st.session_state.FILTER_DIR = LOCAL_FILTER_DIR
@@ -441,9 +414,7 @@ if not st.session_state.resources_loaded:
     except Exception as e:
         st.error(f"Error processing local files: {str(e)}")
 
-# =============================================
-# SIDEBAR - CONFIGURATION
-# =============================================
+# Sidebar configuration
 st.sidebar.title("Configuration")
 
 with st.sidebar:
@@ -486,9 +457,7 @@ input_file = st.sidebar.file_uploader(
     help="Upload your spectrum file (TXT, DAT, FITS, SPEC)"
 )
 
-# =============================================
-# MAIN PROCESSING
-# =============================================
+# File processing
 if input_file is not None and st.session_state.MODEL_DIR and st.session_state.FILTER_DIR:
     with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
         tmp_file.write(input_file.getvalue())
@@ -720,9 +689,7 @@ elif not st.session_state.MODEL_DIR or not st.session_state.FILTER_DIR:
 else:
     st.info("ℹ️ Please upload a spectrum file to begin analysis")
 
-# =============================================
-# INSTRUCTIONS
-# =============================================
+# Sidebar instructions
 st.sidebar.markdown("""
 **Instructions:**
 1. Upload your spectrum file
