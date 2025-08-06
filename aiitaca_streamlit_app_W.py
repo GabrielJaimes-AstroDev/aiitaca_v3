@@ -40,88 +40,119 @@ st.set_page_config(
 # CSS styles
 css_styles = """
 <style>
+:root {
+    --primary-color: #1E88E5;
+    --border-color: #1E88E5;
+    --background-color: #000000;
+    --text-color: #FFFFFF;
+    --secondary-text: #BBBBBB;
+    --success-color: #2E7D32;
+    --warning-color: #FF8F00;
+    --error-color: #C62828;
+}
+
+/* Main styles */
+.stApp {
+    background-color: var(--background-color) !important;
+    color: var(--text-color) !important;
+}
+
+/* Titles and text */
 .main-title {
     font-size: 28px !important;
     font-weight: bold !important;
-    color: #FFFFFF !important;
+    color: var(--primary-color) !important;
     margin-bottom: 0.2rem !important;
 }
 .subtitle {
     font-size: 18px !important;
-    color: #BBBBBB !important;
+    color: var(--secondary-text) !important;
     margin-bottom: 1.5rem !important;
 }
+
+/* Panels and boxes */
 .description-panel {
-    background-color: #1E1E1E;
+    background-color: #111111 !important;
     padding: 15px;
     border-radius: 10px;
     margin-bottom: 20px;
-    border-left: 5px solid #4CAF50;
+    border: 2px solid var(--border-color) !important;
 }
+
 .success-box {
-    background-color: #2E7D32;
+    background-color: var(--success-color) !important;
     color: white;
     padding: 10px;
     border-radius: 5px;
     margin: 10px 0;
+    border: 1px solid var(--border-color) !important;
 }
+
 .warning-box {
-    background-color: #FF8F00;
+    background-color: var(--warning-color) !important;
     color: white;
     padding: 10px;
     border-radius: 5px;
     margin: 10px 0;
+    border: 1px solid var(--border-color) !important;
 }
+
 .error-box {
-    background-color: #C62828;
+    background-color: var(--error-color) !important;
     color: white;
     padding: 10px;
     border-radius: 5px;
     margin: 10px 0;
+    border: 1px solid var(--border-color) !important;
 }
+
+/* File explorer styles */
 .tree-view {
     font-family: monospace;
     margin-left: 15px;
 }
 .directory {
-    color: #4FC3F7;
+    color: var(--primary-color) !important;
     margin: 5px 0;
     font-weight: bold;
 }
 .file {
-    color: #E0E0E0;
+    color: var(--text-color) !important;
     margin-left: 20px;
 }
 .size {
-    color: #FF9800;
+    color: var(--warning-color) !important;
     font-style: italic;
 }
 .file-explorer-header {
     font-size: 18px;
     font-weight: bold;
-    color: #4FC3F7;
+    color: var(--primary-color) !important;
     margin-bottom: 10px;
-    border-bottom: 1px solid #444;
+    border-bottom: 1px solid var(--border-color) !important;
     padding-bottom: 5px;
 }
 .file-explorer-item {
     padding: 5px;
-    border-bottom: 1px dotted #444;
+    border-bottom: 1px dotted var(--border-color) !important;
 }
+
+/* Progress elements */
 .progress-text {
     font-size: 14px;
-    color: #BBBBBB;
+    color: var(--secondary-text) !important;
     margin-bottom: 5px;
 }
 .progress-container {
     width: 100%;
-    background-color: #1E1E1E;
+    background-color: #111111 !important;
     border-radius: 5px;
     margin: 10px 0;
+    border: 1px solid var(--border-color) !important;
 }
 .progress-bar {
     height: 20px;
-    background-color: #4CAF50;
+    background-color: var(--primary-color) !important;
     border-radius: 5px;
     width: 0%;
     transition: width 0.5s;
@@ -129,9 +160,53 @@ css_styles = """
     color: white;
     line-height: 20px;
 }
+
+/* Streamlit component overrides */
+.stTextInput, .stNumberInput, .stSelectbox, .stTextArea, .stFileUploader {
+    background-color: #111111 !important;
+    border: 1px solid var(--border-color) !important;
+    color: var(--text-color) !important;
+}
+
+.stButton button {
+    background-color: var(--primary-color) !important;
+    color: white !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: 5px !important;
+}
+
+.stButton button:hover {
+    background-color: #1565C0 !important;
+    border-color: #0D47A1 !important;
+}
+
+/* Tabs */
+.stTabs [data-baseweb="tab-list"] {
+    background-color: #111111 !important;
+    border-bottom: 2px solid var(--border-color) !important;
+}
+
+.stTabs [data-baseweb="tab"] {
+    color: var(--secondary-text) !important;
+    background-color: #111111 !important;
+}
+
+.stTabs [aria-selected="true"] {
+    color: var(--primary-color) !important;
+    background-color: #000000 !important;
+    border-bottom: 2px solid var(--primary-color) !important;
+}
+
+/* Plotly chart background */
+.plot-container.plotly {
+    background-color: #000000 !important;
+    border: 2px solid var(--border-color) !important;
+    border-radius: 10px;
+}
 </style>
 """
 st.markdown(css_styles, unsafe_allow_html=True)
+
 
 # Helper functions
 def list_local_files(directory):
@@ -702,3 +777,4 @@ st.sidebar.markdown("""
 - FITS files (.fits)
 - Spectrum files (.spec)
 """)
+
