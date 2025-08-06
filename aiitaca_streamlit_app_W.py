@@ -38,6 +38,7 @@ st.set_page_config(
 )
 
 # CSS styles
+# CSS styles
 css_styles = """
 <style>
 :root {
@@ -49,12 +50,33 @@ css_styles = """
     --success-color: #2E7D32;
     --warning-color: #FF8F00;
     --error-color: #C62828;
+    --sidebar-text: #000000;  /* Nuevo color para texto del sidebar */
 }
 
 /* Main styles */
 .stApp {
     background-color: var(--background-color) !important;
     color: var(--text-color) !important;
+}
+
+/* Sidebar styles */
+[data-testid="stSidebar"] {
+    background-color: #FFFFFF !important;  /* Fondo blanco para el sidebar */
+    border-right: 2px solid var(--border-color) !important;
+}
+
+[data-testid="stSidebar"] .stMarkdown,
+[data-testid="stSidebar"] .stText,
+[data-testid="stSidebar"] .stTitle,
+[data-testid="stSidebar"] .stHeader,
+[data-testid="stSidebar"] .stSubheader,
+[data-testid="stSidebar"] .stCode,
+[data-testid="stSidebar"] .stFileUploader label {
+    color: var(--sidebar-text) !important;
+}
+
+[data-testid="stSidebar"] .stButton button {
+    color: white !important;  /* Texto blanco para botones */
 }
 
 /* Titles and text */
@@ -70,7 +92,7 @@ css_styles = """
     margin-bottom: 1.5rem !important;
 }
 
-/* Panels and boxes */
+/* Resto de los estilos permanecen igual... */
 .description-panel {
     background-color: #111111 !important;
     padding: 15px;
@@ -88,121 +110,8 @@ css_styles = """
     border: 1px solid var(--border-color) !important;
 }
 
-.warning-box {
-    background-color: var(--warning-color) !important;
-    color: white;
-    padding: 10px;
-    border-radius: 5px;
-    margin: 10px 0;
-    border: 1px solid var(--border-color) !important;
-}
+/* ... (el resto del CSS permanece igual) ... */
 
-.error-box {
-    background-color: var(--error-color) !important;
-    color: white;
-    padding: 10px;
-    border-radius: 5px;
-    margin: 10px 0;
-    border: 1px solid var(--border-color) !important;
-}
-
-/* File explorer styles */
-.tree-view {
-    font-family: monospace;
-    margin-left: 15px;
-}
-.directory {
-    color: var(--primary-color) !important;
-    margin: 5px 0;
-    font-weight: bold;
-}
-.file {
-    color: var(--text-color) !important;
-    margin-left: 20px;
-}
-.size {
-    color: var(--warning-color) !important;
-    font-style: italic;
-}
-.file-explorer-header {
-    font-size: 18px;
-    font-weight: bold;
-    color: var(--primary-color) !important;
-    margin-bottom: 10px;
-    border-bottom: 1px solid var(--border-color) !important;
-    padding-bottom: 5px;
-}
-.file-explorer-item {
-    padding: 5px;
-    border-bottom: 1px dotted var(--border-color) !important;
-}
-
-/* Progress elements */
-.progress-text {
-    font-size: 14px;
-    color: var(--secondary-text) !important;
-    margin-bottom: 5px;
-}
-.progress-container {
-    width: 100%;
-    background-color: #111111 !important;
-    border-radius: 5px;
-    margin: 10px 0;
-    border: 1px solid var(--border-color) !important;
-}
-.progress-bar {
-    height: 20px;
-    background-color: var(--primary-color) !important;
-    border-radius: 5px;
-    width: 0%;
-    transition: width 0.5s;
-    text-align: center;
-    color: white;
-    line-height: 20px;
-}
-
-/* Streamlit component overrides */
-.stTextInput, .stNumberInput, .stSelectbox, .stTextArea, .stFileUploader {
-    background-color: #111111 !important;
-    border: 1px solid var(--border-color) !important;
-    color: var(--text-color) !important;
-}
-
-.stButton button {
-    background-color: var(--primary-color) !important;
-    color: white !important;
-    border: 1px solid var(--border-color) !important;
-    border-radius: 5px !important;
-}
-
-.stButton button:hover {
-    background-color: #1565C0 !important;
-    border-color: #0D47A1 !important;
-}
-
-/* Tabs */
-.stTabs [data-baseweb="tab-list"] {
-    background-color: #111111 !important;
-    border-bottom: 2px solid var(--border-color) !important;
-}
-
-.stTabs [data-baseweb="tab"] {
-    color: var(--secondary-text) !important;
-    background-color: #111111 !important;
-}
-
-.stTabs [aria-selected="true"] {
-    color: var(--primary-color) !important;
-    background-color: #000000 !important;
-    border-bottom: 2px solid var(--primary-color) !important;
-}
-
-/* Plotly chart background */
-.plot-container.plotly {
-    background-color: #000000 !important;
-    border: 2px solid var(--border-color) !important;
-    border-radius: 10px;
-}
 </style>
 """
 st.markdown(css_styles, unsafe_allow_html=True)
@@ -770,6 +679,7 @@ st.sidebar.markdown("""
 - FITS files (.fits)
 - Spectrum files (.spec)
 """)
+
 
 
 
